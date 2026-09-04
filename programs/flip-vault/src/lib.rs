@@ -789,7 +789,8 @@ mod tests {
     fn constants_are_consistent() {
         assert_eq!(GUARANTEE, 100_000_000);
         assert_eq!(FLIP_COST, 1_000_000);
-        assert!(MIN_PLAYERS <= MAX_PLAYERS);
+        assert_eq!(MIN_PLAYERS, 10);
+        assert_eq!(MAX_PLAYERS, 100);
     }
     #[test]
     fn checked_math_rejects_overflow() {

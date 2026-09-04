@@ -12,6 +12,8 @@ import {
   claimIx,
   delegateIx,
   undelegateIx,
+  u64,
+  fetchGame,
 } from "../app/src/lib/program";
 
 const dummyWallet = Keypair.generate().publicKey;
@@ -99,6 +101,63 @@ assert.equal(undelegate.data[0], 10);
 assert.equal(undelegate.data.length, 1);
 assert.equal(undelegate.keys.length, 4);
 
-console.log("All ABI encodings, discriminators, account layouts, and deterministic PDAs verified successfully!");
+// 12. u64 serialization and Buffer 64-bit BigInt compatibility
+const u64Buf = u64(123456789012345n);
+assert.equal(u64Buf.length, 8);
+const view = new DataView(u64Buf.buffer, u64Buf.byteOffset, 8);
+assert.equal(view.getBigUint64(0, true), 123456789012345n);
+assert.equal(u64Buf.readBigUInt64LE(0), 123456789012345n);
+
+const testBuf = Buffer.alloc(8);
+testBuf.writeBigUInt64LE(987654321098765n);
+assert.equal(testBuf.readBigUInt64LE(0), 987654321098765n);
+
+// 13. fetchGame account parsing verification
+const mockAccountData = Buffer.alloc(224);
+mockAccountData[0] = 2; // tag Game
+const mockView = new DataView(mockAccountData.buffer, mockAccountData.byteOffset, 224);
+mockView.setBigUint64(1, 42n, true); // id
+mockAccountData[105] = 1; // status Playing
+mockView.setBigInt64(134, 1800000000n, true); // endAt
+mockView.setUint16(142, 10, true); // playerCount
+mockView.setUint16(144, 4, true); // redPlayers
+mockView.setUint16(146, 6, true); // greenPlayers
+mockAccountData[148] = 45; // redBoxes
+mockAccountData[149] = 55; // greenBoxes
+mockView.setBigUint64(150, 5000000000n, true); // pool
+mockView.setBigUint64(158, 88n, true); // flips
+mockAccountData[167] = 2; // winner
+
+const mockConnection = {
+  getAccountInfo: async () => ({
+    owner: PROGRAM_ID,
+    data: mockAccountData,
+    executable: false,
+    lamports: 1000000,
+  }),
+} as any;
+
+async function run() {
+  const parsedGame = await fetchGame(mockConnection, 42n);
+  assert.notEqual(parsedGame, null);
+  assert.equal(parsedGame?.id, 42n);
+  assert.equal(parsedGame?.status, 1);
+  assert.equal(parsedGame?.endAt, 1800000000n);
+  assert.equal(parsedGame?.playerCount, 10);
+  assert.equal(parsedGame?.redPlayers, 4);
+  assert.equal(parsedGame?.greenPlayers, 6);
+  assert.equal(parsedGame?.redBoxes, 45);
+  assert.equal(parsedGame?.greenBoxes, 55);
+  assert.equal(parsedGame?.pool, 5000000000n);
+  assert.equal(parsedGame?.flips, 88n);
+  assert.equal(parsedGame?.winner, 2);
+
+  console.log("All ABI encodings, discriminators, account layouts, and deterministic PDAs verified successfully!");
+}
+
+run().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
 
 
