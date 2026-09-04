@@ -40,8 +40,8 @@ if (typeof Buffer !== "undefined" && Buffer.prototype) {
   }
 }
 
-export const PROGRAM_ID = new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID ?? "ADTfCpeekasxSNZNgSPgqfyRzxJ7BA4dtaBcoj8JQe8i");
-export const GAME_MINT = new PublicKey(process.env.NEXT_PUBLIC_GAME_MINT ?? "Ay4P9UVG3X6TQ55JD5e5EWun8hAcUCc8SGn39EG79jdD");
+export const PROGRAM_ID = new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID ?? "CXwaGjunkFBADtqeD7HTXbVxBSaomY9ck6mjTbnYBCMA");
+export const GAME_MINT = new PublicKey(process.env.NEXT_PUBLIC_GAME_MINT ?? "Fc5BPByQrwxxpPT13go4dpcv8hH8cseofA9tsDuCA5Yz");
 export const SOLANA_RPC = process.env.NEXT_PUBLIC_SOLANA_RPC ?? "https://api.devnet.solana.com";
 /** @deprecated Use SOLANA_RPC. Kept for existing scripts. */
 export const BASE_RPC = SOLANA_RPC;
@@ -167,6 +167,8 @@ export type GameState = {
   winner: number;
   bump?: number;
   boxes: boolean[];
+  /** True when this snapshot was resolved from a MagicBlock ER clone. */
+  delegated: boolean;
 };
 
 export type PlayerState = {
@@ -190,7 +192,7 @@ function parseGameAccount(info: Awaited<ReturnType<Connection["getAccountInfo"]>
     createdAt: view.getBigInt64(106, true), startAt: view.getBigInt64(126, true), endAt: view.getBigInt64(134, true),
     playerCount: view.getUint16(142, true), redPlayers: view.getUint16(144, true), greenPlayers: view.getUint16(146, true),
     redBoxes: d[148], greenBoxes: d[149], pool: view.getBigUint64(150, true), flips: view.getBigUint64(158, true),
-    seed: d[166], winner: d[167], bump: d[168], boxes,
+    seed: d[166], winner: d[167], bump: d[168], boxes, delegated: false,
   };
 }
 
@@ -199,7 +201,7 @@ export async function fetchGameSnapshot(connection: Connection, id: bigint, erEn
   if (includeEr && erEndpoint) {
     try {
       const erGame = parseGameAccount(await connectionFor(erEndpoint).getAccountInfo(gamePubkey), gamePubkey);
-      if (erGame) return { state: erGame, erEndpoint };
+      if (erGame) return { state: { ...erGame, delegated: true }, erEndpoint };
     } catch {
       // Fall back to the base layer so a stale/unavailable ER endpoint does not hide committed state.
     }
@@ -212,7 +214,7 @@ export async function fetchGameSnapshot(connection: Connection, id: bigint, erEn
   const endpoint = erEndpoint ?? await resolveErEndpoint(gamePubkey);
   if (!endpoint || endpoint === erEndpoint) return { state: null, erEndpoint: endpoint };
   const state = parseGameAccount(await connectionFor(endpoint).getAccountInfo(gamePubkey), gamePubkey);
-  return { state, erEndpoint: endpoint };
+  return { state: state ? { ...state, delegated: true } : null, erEndpoint: endpoint };
 }
 
 export async function fetchGame(connection: Connection, id: bigint, erEndpoint?: string | null): Promise<GameState | null> {
@@ -265,6 +267,7 @@ export async function fetchAllGames(connection: Connection, knownIds: bigint[] =
         winner: d[167],
         bump: d[168],
         boxes,
+        delegated: false,
       });
     }
     const configInfo = await connection.getAccountInfo(pda.config());

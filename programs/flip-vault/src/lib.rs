@@ -20,7 +20,7 @@ use pinocchio::{
 use pinocchio_system::instructions::{CreateAccount, Transfer as LamportTransfer};
 use pinocchio_token::instructions::{Burn, MintTo, Transfer};
 
-pub const ID: Address = Address::from_str_const("ADTfCpeekasxSNZNgSPgqfyRzxJ7BA4dtaBcoj8JQe8i");
+pub const ID: Address = Address::from_str_const("CXwaGjunkFBADtqeD7HTXbVxBSaomY9ck6mjTbnYBCMA");
 
 const CONFIG_SEED: &[u8] = b"config";
 const TREASURY_SEED: &[u8] = b"treasury";
