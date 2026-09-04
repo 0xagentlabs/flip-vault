@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import {
   PROGRAM_ID,
+  DELEGATION_PROGRAM,
+  SOLANA_RPC,
   pda,
   buyIx,
   buyIxs,
@@ -16,6 +18,7 @@ import {
   u64,
   i64,
   fetchGame,
+  fetchGameSnapshot,
   findAvailableGameId,
   resolveErEndpoint,
 } from "../app/src/lib/program";
@@ -170,6 +173,7 @@ const mockConnection = {
 } as any;
 
 async function run() {
+  assert.equal(SOLANA_RPC, process.env.NEXT_PUBLIC_SOLANA_RPC ?? "https://api.devnet.solana.com");
   const parsedGame = await fetchGame(mockConnection, 42n);
   assert.notEqual(parsedGame, null);
   assert.equal(parsedGame?.id, 42n);
@@ -199,6 +203,15 @@ async function run() {
   try {
     const missingConnection = { getAccountInfo: async () => null } as unknown as import("@solana/web3.js").Connection;
     assert.equal(await fetchGame(missingConnection, 999_999n), null);
+    assert.equal(routerCalls, 0);
+
+    // Pure on-chain reads stop at Solana RPC even when an account is delegated.
+    const baseOnlyConnection = {
+      getAccountInfo: async () => ({ owner: DELEGATION_PROGRAM, data: Buffer.alloc(0) }),
+    } as unknown as import("@solana/web3.js").Connection;
+    const baseOnlySnapshot = await fetchGameSnapshot(baseOnlyConnection, 42n, null, false);
+    assert.equal(baseOnlySnapshot.state, null);
+    assert.equal(baseOnlySnapshot.erEndpoint, null);
     assert.equal(routerCalls, 0);
 
     // Concurrent and repeated status lookups share one request and the short TTL cache.

@@ -42,7 +42,9 @@ if (typeof Buffer !== "undefined" && Buffer.prototype) {
 
 export const PROGRAM_ID = new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID ?? "ADTfCpeekasxSNZNgSPgqfyRzxJ7BA4dtaBcoj8JQe8i");
 export const GAME_MINT = new PublicKey(process.env.NEXT_PUBLIC_GAME_MINT ?? "Ay4P9UVG3X6TQ55JD5e5EWun8hAcUCc8SGn39EG79jdD");
-export const BASE_RPC = process.env.NEXT_PUBLIC_BASE_RPC ?? "https://api.devnet.solana.com";
+export const SOLANA_RPC = process.env.NEXT_PUBLIC_SOLANA_RPC ?? "https://api.devnet.solana.com";
+/** @deprecated Use SOLANA_RPC. Kept for existing scripts. */
+export const BASE_RPC = SOLANA_RPC;
 export const ROUTER_RPC = process.env.NEXT_PUBLIC_ROUTER_RPC ?? "https://devnet-router.magicblock.app";
 export const DELEGATION_PROGRAM = new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh");
 export const VALIDATOR = new PublicKey("MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57");
@@ -192,9 +194,9 @@ function parseGameAccount(info: Awaited<ReturnType<Connection["getAccountInfo"]>
   };
 }
 
-export async function fetchGameSnapshot(connection: Connection, id: bigint, erEndpoint?: string | null): Promise<{ state: GameState | null; erEndpoint: string | null }> {
+export async function fetchGameSnapshot(connection: Connection, id: bigint, erEndpoint?: string | null, includeEr = true): Promise<{ state: GameState | null; erEndpoint: string | null }> {
   const gamePubkey = pda.game(id);
-  if (erEndpoint) {
+  if (includeEr && erEndpoint) {
     try {
       const erGame = parseGameAccount(await connectionFor(erEndpoint).getAccountInfo(gamePubkey), gamePubkey);
       if (erGame) return { state: erGame, erEndpoint };
@@ -205,6 +207,7 @@ export async function fetchGameSnapshot(connection: Connection, id: bigint, erEn
   const baseInfo = await connection.getAccountInfo(gamePubkey);
   const baseGame = parseGameAccount(baseInfo, gamePubkey);
   if (baseGame) return { state: baseGame, erEndpoint: null };
+  if (!includeEr) return { state: null, erEndpoint: null };
   if (!baseInfo?.owner.equals(DELEGATION_PROGRAM)) return { state: null, erEndpoint: null };
   const endpoint = erEndpoint ?? await resolveErEndpoint(gamePubkey);
   if (!endpoint || endpoint === erEndpoint) return { state: null, erEndpoint: endpoint };
@@ -232,7 +235,7 @@ export async function findAvailableGameId(connection: Connection, startingAt: bi
   return candidate;
 }
 
-export async function fetchAllGames(connection: Connection, knownIds: bigint[] = []): Promise<GameState[]> {
+export async function fetchAllGames(connection: Connection, knownIds: bigint[] = [], includeEr = true): Promise<GameState[]> {
   try {
     const accounts = await connection.getProgramAccounts(PROGRAM_ID, {
       filters: [{ dataSize: 224 }],
@@ -281,8 +284,10 @@ export async function fetchAllGames(connection: Connection, knownIds: bigint[] =
         if (info?.owner.equals(DELEGATION_PROGRAM)) delegatedIds.push(ids[index]);
       });
     }
-    const delegated = await mapWithConcurrency(delegatedIds, ER_READ_CONCURRENCY, (id) => fetchGame(connection, id));
-    games.push(...delegated.filter((game): game is GameState => game !== null));
+    if (includeEr) {
+      const delegated = await mapWithConcurrency(delegatedIds, ER_READ_CONCURRENCY, (id) => fetchGame(connection, id));
+      games.push(...delegated.filter((game): game is GameState => game !== null));
+    }
     return games.sort((a, b) => (b.id > a.id ? 1 : b.id < a.id ? -1 : 0));
   } catch (e) {
     console.error("Failed to fetch all games:", e);
@@ -290,10 +295,10 @@ export async function fetchAllGames(connection: Connection, knownIds: bigint[] =
   }
 }
 
-export async function fetchPlayerSnapshot(connection: Connection, gameId: bigint, wallet: PublicKey, erEndpoint?: string | null): Promise<{ state: PlayerState | null; erEndpoint: string | null }> {
+export async function fetchPlayerSnapshot(connection: Connection, gameId: bigint, wallet: PublicKey, erEndpoint?: string | null, includeEr = true): Promise<{ state: PlayerState | null; erEndpoint: string | null }> {
   try {
     const playerPubkey = pda.player(pda.game(gameId), wallet);
-    if (erEndpoint) {
+    if (includeEr && erEndpoint) {
       try {
         const erInfo = await connectionFor(erEndpoint).getAccountInfo(playerPubkey);
         const erPlayer = parsePlayerAccount(erInfo);
@@ -304,6 +309,7 @@ export async function fetchPlayerSnapshot(connection: Connection, gameId: bigint
     }
     let info = await connection.getAccountInfo(playerPubkey);
     if (info?.owner.equals(DELEGATION_PROGRAM)) {
+      if (!includeEr) return { state: null, erEndpoint: null };
       const endpoint = erEndpoint ?? await resolveErEndpoint(playerPubkey);
       if (endpoint) info = await connectionFor(endpoint).getAccountInfo(playerPubkey);
       return { state: parsePlayerAccount(info), erEndpoint: endpoint };
