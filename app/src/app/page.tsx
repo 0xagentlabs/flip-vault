@@ -832,14 +832,14 @@ export default function Home() {
                 <div style={{ background: "rgba(255,255,255,0.03)", padding: "14px", borderRadius: "14px", border: "1px solid var(--line)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", marginBottom: "6px" }}>
                     <span>玩家集结进度</span>
-                    <strong>{game.playerCount} / 2 人 (开局门槛)</strong>
+                    <strong>{game.playerCount} / 1 人 (开局门槛)</strong>
                   </div>
                   <div style={{ height: "10px", borderRadius: "9999px", background: "rgba(255,255,255,0.1)", overflow: "hidden" }}>
                     <div
                       style={{
                         height: "100%",
-                        width: `${Math.min(100, (game.playerCount / 2) * 100)}%`,
-                        background: game.playerCount >= 2 ? "#22c55e" : "#f59e0b",
+                        width: `${Math.min(100, game.playerCount * 100)}%`,
+                        background: game.playerCount >= 1 ? "#22c55e" : "#f59e0b",
                         transition: "width 0.3s ease",
                       }}
                     />
@@ -952,18 +952,20 @@ export default function Home() {
                 {/* STEP 5 LAUNCHER: Start Game Button */}
                 <div style={{ marginTop: "auto", borderTop: "1px solid var(--line)", paddingTop: "14px" }}>
                   <div style={{ marginBottom: "10px", fontSize: "12px", color: "var(--muted)" }}>
-                    {game.playerCount < 2 ? (
-                      <span>⚠️ 最少需 2 名玩家方可开启对战（当前还差 {2 - game.playerCount} 人）</span>
+                    {game.playerCount < 1 ? (
+                      <span>至少需要 1 名玩家加入后才能开局</span>
                     ) : joinIsOpen ? (
-                      <span>⏳ 已满足人数，报名倒计时结束后即可开局。</span>
+                      <span>已满足人数；报名倒计时结束后即可单人或多人开局。</span>
                     ) : (
-                      <span style={{ color: "#86efac" }}>🔥 已达到开局条件（当前已集结 {game.playerCount} 人）！</span>
+                      <span style={{ color: "#86efac" }}>
+                        已达到开局条件；无人加入也可在报名截止后单人开局，奖池最终全额结算回本人
+                      </span>
                     )}
                   </div>
                   <button
                     className="btn-primary"
                     style={{ width: "100%", height: "48px", fontSize: "16px" }}
-                    disabled={busy || !wallet.publicKey || game.playerCount < 2 || joinIsOpen}
+                    disabled={busy || !wallet.publicKey || game.playerCount < 1 || joinIsOpen}
                     onClick={() => wallet.publicKey && send("开始游戏", simpleGameIx(5, wallet.publicKey, currentId))}
                   >
                     <Swords size={18} /> 开启 5 分钟翻箱大战 (Step 5)
@@ -1082,7 +1084,9 @@ export default function Home() {
                 <div className="winner-banner">
                   <Trophy size={48} color="#f59e0b" style={{ margin: "0 auto" }} />
                   <h2>
-                    {game.winner === 1
+                    {game.playerCount === 1
+                      ? "单人挑战完成，奖池全额结算！"
+                      : game.winner === 1
                       ? "🔴 红方战队荣获大捷！"
                       : game.winner === 2
                       ? "🟢 绿方战队荣获大捷！"
@@ -1101,8 +1105,8 @@ export default function Home() {
                       <td style={{ color: "var(--gold)" }}>{fmtToken(game.pool)} GAME</td>
                     </tr>
                     <tr>
-                      <td style={{ color: "var(--muted)" }}>获胜方人数</td>
-                      <td>{game.winner === 1 ? game.redPlayers : game.winner === 2 ? game.greenPlayers : game.playerCount} 人</td>
+                      <td style={{ color: "var(--muted)" }}>{game.playerCount === 1 ? "结算玩家数" : "获胜方人数"}</td>
+                      <td>{game.playerCount === 1 ? 1 : game.winner === 1 ? game.redPlayers : game.winner === 2 ? game.greenPlayers : game.playerCount} 人</td>
                     </tr>
                     <tr>
                       <td style={{ color: "var(--muted)" }}>全场翻转次数</td>
@@ -1120,14 +1124,16 @@ export default function Home() {
                         className="status-tag"
                         style={{
                           background:
-                            (game.winner === 1 && player.team === 0) || (game.winner === 2 && player.team === 1)
+                            game.playerCount === 1 || (game.winner === 1 && player.team === 0) || (game.winner === 2 && player.team === 1)
                               ? "rgba(34, 197, 94, 0.2)"
                               : game.winner === 3
                               ? "rgba(245, 158, 11, 0.2)"
                               : "rgba(239, 68, 68, 0.2)",
                         }}
                       >
-                        {(game.winner === 1 && player.team === 0) || (game.winner === 2 && player.team === 1)
+                        {game.playerCount === 1
+                          ? "单人全额结算"
+                          : (game.winner === 1 && player.team === 0) || (game.winner === 2 && player.team === 1)
                           ? "🏅 胜利者"
                           : game.winner === 3
                           ? "🤝 平局退款"
@@ -1225,7 +1231,7 @@ export default function Home() {
                 onChange={(event) => setGameStartInput(event.target.value)}
                 style={{ background: "rgba(255,255,255,0.06)", border: "1px solid var(--line)", borderRadius: "10px", padding: "11px 12px", color: "#fff", colorScheme: "dark" }}
               />
-              <span style={{ fontSize: "12px", color: "var(--muted)" }}>开始前均可加入；到点后至少 2 人即可开局，对战持续 5 分钟。</span>
+              <span style={{ fontSize: "12px", color: "var(--muted)" }}>开始前均可加入；到点后 1 人即可开局，对战持续 5 分钟，单人奖池全额返还。</span>
             </label>
 
             <div style={{ background: "rgba(0,0,0,0.25)", padding: "12px", borderRadius: "12px", fontSize: "12px", display: "grid", gap: "4px" }}>

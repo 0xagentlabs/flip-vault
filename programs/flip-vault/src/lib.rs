@@ -33,7 +33,7 @@ const TOKEN_SCALE: u64 = 1_000_000;
 const TOKEN_PRICE_LAMPORTS: u64 = 1_000_000;
 const GUARANTEE: u64 = 30 * TOKEN_SCALE;
 const FLIP_COST: u64 = TOKEN_SCALE;
-const MIN_PLAYERS: u16 = 2;
+const MIN_PLAYERS: u16 = 1;
 const MAX_PLAYERS: u16 = 100;
 const PLAY_SECONDS: i64 = 300;
 const INTENT_BUNDLE_SIZE: usize = 512;
@@ -82,7 +82,13 @@ fn reward_for(
     contributed: u64,
     pool: u64,
     winners: u64,
+    players: u16,
 ) -> Result<u64, ProgramError> {
+    // A solo game has no opponent, so the only player receives the complete
+    // contributed pool regardless of the board's final colour majority.
+    if players == 1 {
+        return Ok(pool);
+    }
     if winner == 3 {
         return Ok(contributed);
     }
@@ -602,7 +608,14 @@ fn claim(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResult {
     } else {
         read_u16(&g, 146)?
     } as u64;
-    let reward = reward_for(winner, team, contributed, read_u64(&g, 150)?, winners)?;
+    let reward = reward_for(
+        winner,
+        team,
+        contributed,
+        read_u64(&g, 150)?,
+        winners,
+        read_u16(&g, 142)?,
+    )?;
     let amount = checked_add(reward, unused)?;
     if reward == 0 && unused == 0 {
         return Err(err(E_NOT_WINNER));
@@ -833,7 +846,7 @@ mod tests {
     fn constants_are_consistent() {
         assert_eq!(GUARANTEE, 30_000_000);
         assert_eq!(FLIP_COST, 1_000_000);
-        assert_eq!(MIN_PLAYERS, 2);
+        assert_eq!(MIN_PLAYERS, 1);
         assert_eq!(MAX_PLAYERS, 100);
     }
     #[test]
@@ -859,12 +872,18 @@ mod tests {
     }
     #[test]
     fn tie_refunds_actual_contribution() {
-        assert_eq!(reward_for(3, 0, 123, 999, 0).unwrap(), 123);
+        assert_eq!(reward_for(3, 0, 123, 999, 0, 2).unwrap(), 123);
     }
     #[test]
     fn winning_team_splits_pool_and_loser_gets_zero() {
-        assert_eq!(reward_for(1, 0, 100, 1001, 10).unwrap(), 100);
-        assert_eq!(reward_for(1, 1, 100, 1001, 10).unwrap(), 0);
+        assert_eq!(reward_for(1, 0, 100, 1001, 10, 20).unwrap(), 100);
+        assert_eq!(reward_for(1, 1, 100, 1001, 10, 20).unwrap(), 0);
+    }
+    #[test]
+    fn solo_player_receives_the_entire_pool_regardless_of_board_winner() {
+        assert_eq!(reward_for(1, 1, 125, 125, 1, 1).unwrap(), 125);
+        assert_eq!(reward_for(2, 0, 125, 125, 0, 1).unwrap(), 125);
+        assert_eq!(reward_for(3, 0, 125, 125, 0, 1).unwrap(), 125);
     }
     #[test]
     fn winner_uses_box_majority() {

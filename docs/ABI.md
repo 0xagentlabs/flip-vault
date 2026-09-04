@@ -30,6 +30,8 @@
 
 `s` 表示 signer，`w` 表示 writable。Base Layer 执行 0～5、8、9；委托完成后，6、7、10 发往 Router 返回的 ER `fqdn`。
 
+`Start` 至少需要 1 名已加入玩家，且须到达 `start_at`（或房间提前满 100 人）。当 `player_count == 1` 时，`Claim` 忽略红绿胜负，将完整奖池加未使用点击额度结算给唯一玩家；多人局继续按获胜阵营平分奖池，平局退还各自实际贡献。
+
 委托后的 Game/Player 在 Base Layer 由 Delegation Program 持有。读取方必须先调用 Router `getDelegationStatus`，仅当 `isDelegated=true` 且 `fqdn` 有效时从该 ER endpoint 读取，并继续校验 ER 账户 owner 为本 Program、数据长度和 discriminator。
 
 创建游戏时，客户端不得仅按 `getProgramAccounts(Program ID)` 的可见结果分配编号，因为已委托 Game 会从该结果中消失。客户端须从候选编号开始，在 Base Layer 逐个调用 `getAccountInfo(Game PDA)`，仅使用账户不存在的首个编号；账户存在但 owner 为 Delegation Program 同样视为已占用。
