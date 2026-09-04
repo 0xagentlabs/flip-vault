@@ -1,0 +1,9 @@
+target/
+node_modules/
+app/node_modules/
+app/.next/
+app/.vercel/
+deploy/*.json
+.env*
+!.env.example
+

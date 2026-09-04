@@ -1,0 +1,15 @@
+{
+  "name": "flip-vault-workspace",
+  "private": true,
+  "scripts": {
+    "test:abi": "tsx tests/abi.test.ts",
+    "test": "pnpm run test:abi && pnpm --dir app run lint && pnpm --dir app run build",
+    "build:program": "NO_DNA=1 cargo build-sbf"
+  },
+  "devDependencies": {
+    "@solana/web3.js": "^1.98.4",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  },
+  "packageManager": "pnpm@11.25.0"
+}
