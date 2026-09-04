@@ -139,7 +139,10 @@ export default function Home() {
   // Poll lobby & balances
   useEffect(() => {
     let active = true;
+    let inFlight = false;
     const fetchLobbyData = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const storedIds = JSON.parse(localStorage.getItem("flip-vault-known-games") ?? "[]") as string[];
         const knownIds = [...gamesRef.current.map((item) => item.id), ...storedIds.map((id) => BigInt(id))];
@@ -156,9 +159,10 @@ export default function Home() {
           console.error("Failed to load balances", err);
         }
       }
+      inFlight = false;
     };
     fetchLobbyData();
-    const timer = setInterval(fetchLobbyData, 3000);
+    const timer = setInterval(fetchLobbyData, 15_000);
     return () => {
       active = false;
       clearInterval(timer);
@@ -168,7 +172,10 @@ export default function Home() {
   // Poll current game & player
   useEffect(() => {
     let active = true;
+    let inFlight = false;
     const fetchCurrentData = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const g = await fetchGame(connection, currentId);
         if (!active) return;
@@ -200,6 +207,7 @@ export default function Home() {
       } else {
         if (active) setPlayer(null);
       }
+      inFlight = false;
     };
     fetchCurrentData();
     const timer = setInterval(fetchCurrentData, 2500);

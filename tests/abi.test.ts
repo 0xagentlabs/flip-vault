@@ -17,6 +17,7 @@ import {
   i64,
   fetchGame,
   findAvailableGameId,
+  resolveErEndpoint,
 } from "../app/src/lib/program";
 
 const dummyWallet = Keypair.generate().publicKey;
@@ -183,6 +184,37 @@ async function run() {
   assert.equal(parsedGame?.pool, 5000000000n);
   assert.equal(parsedGame?.flips, 88n);
   assert.equal(parsedGame?.winner, 2);
+
+  // 14. Missing base-layer accounts must not fan out into router requests.
+  const originalFetch = globalThis.fetch;
+  let routerCalls = 0;
+  globalThis.fetch = async () => {
+    routerCalls += 1;
+    return new Response(JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      result: { isDelegated: true, fqdn: "https://devnet-as.magicblock.app/" },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const missingConnection = { getAccountInfo: async () => null } as unknown as import("@solana/web3.js").Connection;
+    assert.equal(await fetchGame(missingConnection, 999_999n), null);
+    assert.equal(routerCalls, 0);
+
+    // Concurrent and repeated status lookups share one request and the short TTL cache.
+    const delegatedAccount = Keypair.generate().publicKey;
+    const endpoints = await Promise.all([
+      resolveErEndpoint(delegatedAccount),
+      resolveErEndpoint(delegatedAccount),
+      resolveErEndpoint(delegatedAccount),
+    ]);
+    assert.deepEqual(endpoints, Array(3).fill("https://devnet-as.magicblock.app/"));
+    assert.equal(routerCalls, 1);
+    assert.equal(await resolveErEndpoint(delegatedAccount), "https://devnet-as.magicblock.app/");
+    assert.equal(routerCalls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 
   console.log("All ABI encodings, discriminators, account layouts, and deterministic PDAs verified successfully!");
 }

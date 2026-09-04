@@ -48,6 +48,34 @@ export const DELEGATION_PROGRAM = new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLj
 export const VALIDATOR = new PublicKey("MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57");
 export const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111");
 export const MAGIC_PROGRAM = new PublicKey("Magic11111111111111111111111111111111111111");
+const CONNECTION_CACHE = new Map<string, Connection>();
+const ER_ENDPOINT_CACHE = new Map<string, { endpoint: string | null; expiresAt: number }>();
+const ER_ENDPOINT_REQUESTS = new Map<string, Promise<string | null>>();
+const ER_ENDPOINT_TTL_MS = 15_000;
+const ACCOUNT_BATCH_SIZE = 100;
+const ER_READ_CONCURRENCY = 4;
+
+function connectionFor(endpoint: string): Connection {
+  let connection = CONNECTION_CACHE.get(endpoint);
+  if (!connection) {
+    connection = new Connection(endpoint, "confirmed");
+    CONNECTION_CACHE.set(endpoint, connection);
+  }
+  return connection;
+}
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await fn(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
 export const u64 = (value: bigint | number): Buffer => {
   const out = Buffer.alloc(8);
   new DataView(out.buffer, out.byteOffset, 8).setBigUint64(0, BigInt(value), true);
@@ -166,11 +194,13 @@ function parseGameAccount(info: Awaited<ReturnType<Connection["getAccountInfo"]>
 
 export async function fetchGame(connection: Connection, id: bigint): Promise<GameState | null> {
   const gamePubkey = pda.game(id);
-  const baseGame = parseGameAccount(await connection.getAccountInfo(gamePubkey), gamePubkey);
+  const baseInfo = await connection.getAccountInfo(gamePubkey);
+  const baseGame = parseGameAccount(baseInfo, gamePubkey);
   if (baseGame) return baseGame;
+  if (!baseInfo?.owner.equals(DELEGATION_PROGRAM)) return null;
   const endpoint = await resolveErEndpoint(gamePubkey);
   if (!endpoint) return null;
-  return parseGameAccount(await new Connection(endpoint, "confirmed").getAccountInfo(gamePubkey), gamePubkey);
+  return parseGameAccount(await connectionFor(endpoint).getAccountInfo(gamePubkey), gamePubkey);
 }
 
 /**
@@ -229,9 +259,16 @@ export async function fetchAllGames(connection: Connection, knownIds: bigint[] =
     const registryIds = Array.from({ length: Number(nextGame > 10_000n ? 10_000n : nextGame) }, (_, id) => BigInt(id));
     const candidateIds = [...new Set([...knownIds, ...registryIds].map((id) => id.toString()))].map((id) => BigInt(id));
     const visibleIds = new Set(games.map((game) => game.id.toString()));
-    const delegated = await Promise.all(
-      candidateIds.filter((id) => !visibleIds.has(id.toString())).map((id) => fetchGame(connection, id))
-    );
+    const missingIds = candidateIds.filter((id) => !visibleIds.has(id.toString()));
+    const delegatedIds: bigint[] = [];
+    for (let offset = 0; offset < missingIds.length; offset += ACCOUNT_BATCH_SIZE) {
+      const ids = missingIds.slice(offset, offset + ACCOUNT_BATCH_SIZE);
+      const infos = await connection.getMultipleAccountsInfo(ids.map((id) => pda.game(id)));
+      infos.forEach((info, index) => {
+        if (info?.owner.equals(DELEGATION_PROGRAM)) delegatedIds.push(ids[index]);
+      });
+    }
+    const delegated = await mapWithConcurrency(delegatedIds, ER_READ_CONCURRENCY, (id) => fetchGame(connection, id));
     games.push(...delegated.filter((game): game is GameState => game !== null));
     return games.sort((a, b) => (b.id > a.id ? 1 : b.id < a.id ? -1 : 0));
   } catch (e) {
@@ -244,9 +281,9 @@ export async function fetchPlayer(connection: Connection, gameId: bigint, wallet
   try {
     const playerPubkey = pda.player(pda.game(gameId), wallet);
     let info = await connection.getAccountInfo(playerPubkey);
-    if (!info || !info.owner.equals(PROGRAM_ID)) {
+    if (info?.owner.equals(DELEGATION_PROGRAM)) {
       const endpoint = await resolveErEndpoint(playerPubkey);
-      if (endpoint) info = await new Connection(endpoint, "confirmed").getAccountInfo(playerPubkey);
+      if (endpoint) info = await connectionFor(endpoint).getAccountInfo(playerPubkey);
     }
     if (!info || !info.owner.equals(PROGRAM_ID) || info.data.length !== 96 || info.data[0] !== 3) return null;
     const d = info.data;
@@ -281,8 +318,29 @@ export async function fetchBalances(connection: Connection, wallet: PublicKey): 
 }
 
 export async function resolveErEndpoint(account: PublicKey): Promise<string | null> {
-  const response = await fetch(ROUTER_RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getDelegationStatus", params: [account.toBase58()] }) });
-  if (!response.ok) return null;
-  const json = await response.json();
-  return json?.result?.isDelegated === true && typeof json.result.fqdn === "string" ? json.result.fqdn : null;
+  const key = account.toBase58();
+  const cached = ER_ENDPOINT_CACHE.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.endpoint;
+
+  const pending = ER_ENDPOINT_REQUESTS.get(key);
+  if (pending) return pending;
+
+  const request = (async () => {
+    try {
+      const response = await fetch(ROUTER_RPC, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getDelegationStatus", params: [key] }),
+      });
+      if (!response.ok) return null;
+      const json = await response.json();
+      const endpoint = json?.result?.isDelegated === true && typeof json.result.fqdn === "string" ? json.result.fqdn : null;
+      ER_ENDPOINT_CACHE.set(key, { endpoint, expiresAt: Date.now() + ER_ENDPOINT_TTL_MS });
+      return endpoint;
+    } finally {
+      ER_ENDPOINT_REQUESTS.delete(key);
+    }
+  })();
+  ER_ENDPOINT_REQUESTS.set(key, request);
+  return request;
 }
