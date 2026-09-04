@@ -32,7 +32,7 @@ const TOKEN_SCALE: u64 = 1_000_000;
 const TOKEN_PRICE_LAMPORTS: u64 = 1_000_000;
 const GUARANTEE: u64 = 100 * TOKEN_SCALE;
 const FLIP_COST: u64 = TOKEN_SCALE;
-const MIN_PLAYERS: u16 = 10;
+const MIN_PLAYERS: u16 = 2;
 const MAX_PLAYERS: u16 = 100;
 const JOIN_SECONDS: i64 = 120;
 const PLAY_SECONDS: i64 = 300;
@@ -789,7 +789,7 @@ mod tests {
     fn constants_are_consistent() {
         assert_eq!(GUARANTEE, 100_000_000);
         assert_eq!(FLIP_COST, 1_000_000);
-        assert_eq!(MIN_PLAYERS, 10);
+        assert_eq!(MIN_PLAYERS, 2);
         assert_eq!(MAX_PLAYERS, 100);
     }
     #[test]

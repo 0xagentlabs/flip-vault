@@ -576,6 +576,44 @@ button:disabled {
   gap: 6px;
 }
 
+.game-time-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.game-time-grid > div,
+.auto-game-id {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.game-time-grid span,
+.auto-game-id span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.game-time-grid strong {
+  font-size: 13px;
+}
+
+.auto-game-id strong {
+  color: var(--gold);
+  font-size: 22px;
+}
+
+@media (max-width: 640px) {
+  .game-time-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .status-tag {
   padding: 4px 10px;
   border-radius: 9999px;

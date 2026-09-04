@@ -44,6 +44,16 @@ import {
 
 const initialBoxes = Array.from({ length: 100 }, (_, i) => (i * 37 + 11) % 7 < 3);
 const fmtToken = (raw: bigint | number) => (Number(raw) / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 2 });
+const fmtDateTime = (timestamp?: bigint) => {
+  if (timestamp === undefined) return "--";
+  return new Date(Number(timestamp) * 1000).toLocaleString("zh-CN", { hour12: false });
+};
+const fmtDuration = (seconds: bigint) => {
+  const total = Math.max(0, Number(seconds));
+  const minutes = Math.floor(total / 60);
+  const remainder = total % 60;
+  return `${minutes} 分 ${remainder} 秒`;
+};
 
 const subscribeClock = (callback: () => void) => {
   const timer = setInterval(callback, 1000);
@@ -85,7 +95,6 @@ export default function Home() {
   const [optimisticBoxes, setOptimisticBoxes] = useState<boolean[] | null>(null);
 
   // Forms
-  const [newGameIdInput, setNewGameIdInput] = useState<string>("");
   const [buyAmountInput, setBuyAmountInput] = useState<string>("200");
   const [selectedCredits, setSelectedCredits] = useState<number>(100);
   const [customCredits, setCustomCredits] = useState<string>("");
@@ -113,7 +122,6 @@ export default function Home() {
     if (g.id > maxGameId) maxGameId = g.id;
   }
   const suggestedGameId = (maxGameId + 1n).toString();
-  const effectiveNewGameId = newGameIdInput || suggestedGameId;
 
   // Poll lobby & balances
   useEffect(() => {
@@ -681,6 +689,23 @@ export default function Home() {
               </div>
             </div>
 
+            {game && (
+              <div className="game-time-grid" aria-label="游戏时间详情">
+                <div>
+                  <span>预计开始时间</span>
+                  <strong>{fmtDateTime(game.joinDeadline)}</strong>
+                </div>
+                <div>
+                  <span>预计结束时间</span>
+                  <strong>{fmtDateTime(game.endAt)}</strong>
+                </div>
+                <div>
+                  <span>预计消耗时间</span>
+                  <strong>{game.createdAt === undefined ? "--" : fmtDuration(game.endAt - game.createdAt)}</strong>
+                </div>
+              </div>
+            )}
+
             {/* Tug-of-war Bar */}
             <div className="battle-tug-bar">
               <div className="tug-labels">
@@ -786,14 +811,14 @@ export default function Home() {
                 <div style={{ background: "rgba(255,255,255,0.03)", padding: "14px", borderRadius: "14px", border: "1px solid var(--line)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", marginBottom: "6px" }}>
                     <span>玩家集结进度</span>
-                    <strong>{game.playerCount} / 10 人 (开局门槛)</strong>
+                    <strong>{game.playerCount} / 2 人 (开局门槛)</strong>
                   </div>
                   <div style={{ height: "10px", borderRadius: "9999px", background: "rgba(255,255,255,0.1)", overflow: "hidden" }}>
                     <div
                       style={{
                         height: "100%",
-                        width: `${Math.min(100, (game.playerCount / 10) * 100)}%`,
-                        background: game.playerCount >= 10 ? "#22c55e" : "#f59e0b",
+                        width: `${Math.min(100, (game.playerCount / 2) * 100)}%`,
+                        background: game.playerCount >= 2 ? "#22c55e" : "#f59e0b",
                         transition: "width 0.3s ease",
                       }}
                     />
@@ -1151,50 +1176,34 @@ export default function Home() {
               在 Solana Devnet 上初始化一个崭新的 10×10 翻箱竞技房间。系统将自动为你生成 Game PDA 与代币奖池金库。
             </p>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              <label htmlFor="new-id" style={{ fontSize: "12px", color: "var(--muted)" }}>
-                房间编号 (建议使用推荐编号避免重复)：
-              </label>
-              <input
-                id="new-id"
-                type="text"
-                value={newGameIdInput}
-                placeholder={`推荐: #${suggestedGameId}`}
-                onChange={(e) => setNewGameIdInput(e.target.value.replace(/\D/g, ""))}
-                style={{
-                  background: "rgba(255,255,255,0.06)",
-                  border: "1px solid var(--line)",
-                  borderRadius: "10px",
-                  padding: "10px 14px",
-                  color: "#fff",
-                  fontSize: "16px",
-                  fontWeight: 700,
-                }}
-              />
+            <div className="auto-game-id" aria-live="polite">
+              <span>系统自动生成游戏编号</span>
+              <strong>#{suggestedGameId}</strong>
             </div>
 
             <div style={{ background: "rgba(0,0,0,0.25)", padding: "12px", borderRadius: "12px", fontSize: "12px", display: "grid", gap: "4px" }}>
               <div>📦 棋盘规模：100 个红绿双色宝箱</div>
               <div>⏳ 报名招募时间：120 秒</div>
               <div>⚔️ 竞技对抗时间：300 秒 (5 分钟)</div>
-              <div>👥 开局要求：10 ～ 100 人</div>
+              <div>👥 开局要求：2 ～ 100 人</div>
               <div>💰 保证金：100 GAME / 人</div>
             </div>
 
             <button
               className="btn-primary"
               style={{ width: "100%", height: "46px" }}
-              disabled={busy || !wallet.publicKey || !effectiveNewGameId}
+              disabled={busy || loadingGames || !wallet.publicKey}
               onClick={async () => {
                 if (!wallet.publicKey) return;
-                const idNum = BigInt(effectiveNewGameId || "0");
+                const latestGames = await fetchAllGames(connection);
+                const idNum = latestGames.reduce((max, item) => item.id > max ? item.id : max, 0n) + 1n;
                 await send(`发起 #${idNum} 游戏`, createGameIxs(wallet.publicKey, idNum));
                 setSelectedGameId(idNum.toString());
                 setShowCreateModal(false);
                 setViewTab("arena");
               }}
             >
-              <PlusCircle size={16} /> 确认发起 #{effectiveNewGameId} 游戏
+              <PlusCircle size={16} /> 直接新建游戏
             </button>
           </div>
         </div>
