@@ -108,6 +108,58 @@ button:disabled {
   flex-wrap: wrap;
 }
 
+.execution-mode-card {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(360px, 1.4fr);
+  gap: 16px 24px;
+  align-items: center;
+  padding: 20px 22px;
+  background: var(--bg-card);
+  border: 1px solid var(--line-bright);
+  border-radius: 18px;
+}
+
+.execution-mode-copy h2 { margin: 3px 0 6px; font-size: 20px; }
+.execution-mode-copy p { margin: 0; color: var(--muted-light); font-size: 13px; line-height: 1.55; }
+.eyebrow { color: var(--blue); font-size: 11px; font-weight: 800; letter-spacing: .14em; }
+.mode-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.mode-option {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  color: var(--muted-light);
+  text-align: left;
+  background: rgba(255,255,255,.03);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.mode-option:hover:not(:disabled) { background: rgba(255,255,255,.07); border-color: var(--line-bright); }
+.mode-option:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+.mode-option.active { color: #fff; border-color: var(--green); background: rgba(34,197,94,.12); box-shadow: 0 0 16px rgba(34,197,94,.12); }
+.mode-option span { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.mode-option strong { font-size: 14px; }
+.mode-option small { color: var(--muted); font-size: 11px; line-height: 1.3; }
+.mode-status {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+.mode-status.ready { color: #bbf7d0; background: rgba(34,197,94,.09); border: 1px solid rgba(34,197,94,.22); }
+.mode-status.pending { color: #fde68a; background: rgba(245,158,11,.09); border: 1px solid rgba(245,158,11,.22); }
+
+@media (max-width: 760px) {
+  .execution-mode-card { grid-template-columns: 1fr; padding: 16px; }
+  .mode-options { grid-template-columns: 1fr; }
+  .mode-option { min-height: 56px; }
+}
+
 .wallet-badge {
   display: flex;
   align-items: center;
