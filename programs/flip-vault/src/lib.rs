@@ -3,6 +3,7 @@
 
 use core::mem::MaybeUninit;
 use ephemeral_rollups_pinocchio::{
+    consts::EXTERNAL_UNDELEGATE_DISCRIMINATOR,
     instruction::{DelegateAccountCpiBuilder, undelegate},
     intent_bundle::MagicIntentBundleBuilder,
     types::DelegateConfig,
@@ -30,12 +31,13 @@ const GAME_SIZE: usize = 224;
 const PLAYER_SIZE: usize = 96;
 const TOKEN_SCALE: u64 = 1_000_000;
 const TOKEN_PRICE_LAMPORTS: u64 = 1_000_000;
-const GUARANTEE: u64 = 100 * TOKEN_SCALE;
+const GUARANTEE: u64 = 30 * TOKEN_SCALE;
 const FLIP_COST: u64 = TOKEN_SCALE;
 const MIN_PLAYERS: u16 = 2;
 const MAX_PLAYERS: u16 = 100;
 const PLAY_SECONDS: i64 = 300;
 const INTENT_BUNDLE_SIZE: usize = 512;
+const DELEGATION_RENT_BUFFER: u64 = 10_000_000;
 
 const E_INVALID_DATA: u32 = 6000;
 const E_INVALID_ACCOUNT: u32 = 6001;
@@ -177,7 +179,12 @@ fn create_pda<'a>(
     if pda.lamports() != 0 {
         return Err(err(E_ALREADY_INITIALIZED));
     }
-    let lamports = Rent::get()?.try_minimum_balance(size)?;
+    let rent = Rent::get()?.try_minimum_balance(size)?;
+    let lamports = if size == GAME_SIZE || size == PLAYER_SIZE {
+        checked_add(rent, DELEGATION_RENT_BUFFER)?
+    } else {
+        rent
+    };
     CreateAccount {
         from: payer,
         to: pda,
@@ -330,6 +337,7 @@ fn create_game(
     if game.address() != &game_key {
         return Err(ProgramError::InvalidSeeds);
     }
+    require_writable(config)?;
     let config_data = config.try_borrow()?;
     if &config_data[33..65] != mint.address().as_ref() {
         return Err(err(E_INVALID_ACCOUNT));
@@ -385,6 +393,12 @@ fn create_game(
     }
     data[148] = red;
     data[149] = 100 - red;
+    drop(data);
+    let mut config_data = config.try_borrow_mut()?;
+    let next_game = game_id.checked_add(1).ok_or(err(E_MATH))?;
+    if next_game > read_u64(&config_data, 65)? {
+        write_u64(&mut config_data, 65, next_game)?;
+    }
     Ok(())
 }
 
@@ -642,6 +656,16 @@ fn delegate(
         if target.address() != &expected {
             return Err(ProgramError::InvalidSeeds);
         }
+        require_program_owned(target, program_id)?;
+        let data = target.try_borrow()?;
+        if data.len() != GAME_SIZE
+            || data[0] != 2
+            || data[105] != 1
+            || &data[9..41] != payer.address().as_ref()
+        {
+            return Err(err(E_BAD_STATUS));
+        }
+        drop(data);
         DelegateAccountCpiBuilder::new(
             payer,
             target,
@@ -719,7 +743,6 @@ enum Ix {
     Claim,
     Delegate,
     CommitUndelegate,
-    CallbackUndelegate,
 }
 impl TryFrom<u8> for Ix {
     type Error = ProgramError;
@@ -736,7 +759,6 @@ impl TryFrom<u8> for Ix {
             8 => Self::Claim,
             9 => Self::Delegate,
             10 => Self::CommitUndelegate,
-            196 => Self::CallbackUndelegate,
             _ => return Err(err(E_INVALID_DATA)),
         })
     }
@@ -748,6 +770,13 @@ pub fn process_instruction(
 ) -> ProgramResult {
     if program_id != &ID {
         return Err(ProgramError::IncorrectProgramId);
+    }
+    if data.starts_with(&EXTERNAL_UNDELEGATE_DISCRIMINATOR) {
+        return callback_undelegate(
+            program_id,
+            accounts,
+            &data[EXTERNAL_UNDELEGATE_DISCRIMINATOR.len()..],
+        );
     }
     let (&tag, payload) = data.split_first().ok_or(err(E_INVALID_DATA))?;
     match Ix::try_from(tag)? {
@@ -776,7 +805,6 @@ pub fn process_instruction(
             read_u64(payload, 1)?,
         ),
         Ix::CommitUndelegate => commit_and_undelegate(accounts),
-        Ix::CallbackUndelegate => callback_undelegate(program_id, accounts, payload),
     }
 }
 
@@ -803,7 +831,7 @@ mod tests {
     use super::*;
     #[test]
     fn constants_are_consistent() {
-        assert_eq!(GUARANTEE, 100_000_000);
+        assert_eq!(GUARANTEE, 30_000_000);
         assert_eq!(FLIP_COST, 1_000_000);
         assert_eq!(MIN_PLAYERS, 2);
         assert_eq!(MAX_PLAYERS, 100);

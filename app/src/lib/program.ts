@@ -42,7 +42,7 @@ if (typeof Buffer !== "undefined" && Buffer.prototype) {
 
 export const PROGRAM_ID = new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID ?? "ADTfCpeekasxSNZNgSPgqfyRzxJ7BA4dtaBcoj8JQe8i");
 export const GAME_MINT = new PublicKey(process.env.NEXT_PUBLIC_GAME_MINT ?? "Ay4P9UVG3X6TQ55JD5e5EWun8hAcUCc8SGn39EG79jdD");
-export const BASE_RPC = process.env.NEXT_PUBLIC_BASE_RPC ?? "https://rpc.magicblock.app/devnet";
+export const BASE_RPC = process.env.NEXT_PUBLIC_BASE_RPC ?? "https://api.devnet.solana.com";
 export const ROUTER_RPC = process.env.NEXT_PUBLIC_ROUTER_RPC ?? "https://devnet-router.magicblock.app";
 export const DELEGATION_PROGRAM = new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh");
 export const VALIDATOR = new PublicKey("MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57");
@@ -84,7 +84,7 @@ export function redeemIx(wallet: PublicKey, amount: bigint) { return ix(2, [
   { pubkey: getAssociatedTokenAddressSync(GAME_MINT, wallet), isSigner: false, isWritable: true }, { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
 ], u64(amount)); }
 export function createGameIx(wallet: PublicKey, id: bigint, startAt: bigint) { const game = pda.game(id); return ix(3, [
-  { pubkey: wallet, isSigner: true, isWritable: true }, { pubkey: pda.config(), isSigner: false, isWritable: false },
+  { pubkey: wallet, isSigner: true, isWritable: true }, { pubkey: pda.config(), isSigner: false, isWritable: true },
   { pubkey: game, isSigner: false, isWritable: true }, { pubkey: GAME_MINT, isSigner: false, isWritable: false },
   { pubkey: getAssociatedTokenAddressSync(GAME_MINT, game, true), isSigner: false, isWritable: false }, { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
 ], Buffer.concat([u64(id), i64(startAt)])); }
@@ -221,9 +221,16 @@ export async function fetchAllGames(connection: Connection, knownIds: bigint[] =
         boxes,
       });
     }
+    const configInfo = await connection.getAccountInfo(pda.config());
+    let nextGame = 0n;
+    if (configInfo?.owner.equals(PROGRAM_ID) && configInfo.data.length === 96 && configInfo.data[0] === 1) {
+      nextGame = new DataView(configInfo.data.buffer, configInfo.data.byteOffset, configInfo.data.byteLength).getBigUint64(65, true);
+    }
+    const registryIds = Array.from({ length: Number(nextGame > 10_000n ? 10_000n : nextGame) }, (_, id) => BigInt(id));
+    const candidateIds = [...new Set([...knownIds, ...registryIds].map((id) => id.toString()))].map((id) => BigInt(id));
     const visibleIds = new Set(games.map((game) => game.id.toString()));
     const delegated = await Promise.all(
-      knownIds.filter((id) => !visibleIds.has(id.toString())).map((id) => fetchGame(connection, id))
+      candidateIds.filter((id) => !visibleIds.has(id.toString())).map((id) => fetchGame(connection, id))
     );
     games.push(...delegated.filter((game): game is GameState => game !== null));
     return games.sort((a, b) => (b.id > a.id ? 1 : b.id < a.id ? -1 : 0));

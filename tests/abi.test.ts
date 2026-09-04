@@ -60,6 +60,7 @@ assert.equal(createGame.data.length, 17);
 assert.equal(createGame.data.readBigUInt64LE(1), gameId);
 assert.equal(createGame.data.readBigInt64LE(9), startAt);
 assert.equal(createGame.keys.length, 6);
+assert.equal(createGame.keys[1].isWritable, true);
 
 // 5. Join instruction encoding
 const join = joinIx(dummyWallet, gameId, 100n);

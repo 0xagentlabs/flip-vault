@@ -95,6 +95,7 @@ export default function Home() {
   const [busy, setBusy] = useState<boolean>(false);
   const [loadingGames, setLoadingGames] = useState<boolean>(false);
   const [erEndpoint, setErEndpoint] = useState<string | null>(null);
+  const [playerErEndpoint, setPlayerErEndpoint] = useState<string | null>(null);
   const [useEr, setUseEr] = useState<boolean>(false);
 
   // Optimistic board states
@@ -188,8 +189,13 @@ export default function Home() {
         try {
           const p = await fetchPlayer(connection, currentId, wallet.publicKey);
           if (active) setPlayer(p);
+          const playerEndpoint = await resolveErEndpoint(pda.player(pda.game(currentId), wallet.publicKey));
+          if (active) setPlayerErEndpoint(playerEndpoint);
         } catch {
-          if (active) setPlayer(null);
+          if (active) {
+            setPlayer(null);
+            setPlayerErEndpoint(null);
+          }
         }
       } else {
         if (active) setPlayer(null);
@@ -331,7 +337,7 @@ export default function Home() {
 
   // Credits calculation
   const creditsToBuy = customCredits ? parseInt(customCredits, 10) || 0 : selectedCredits;
-  const totalGameTokensNeeded = 100 + creditsToBuy;
+  const totalGameTokensNeeded = 30 + creditsToBuy;
 
   return (
     <div className="main-container">
@@ -471,7 +477,7 @@ export default function Home() {
                 翻转红绿阵营。<span>瓜分金库大奖。</span>
               </h1>
               <p>
-                100 个神秘箱子、红绿两方势均力敌。质押 100 GAME 入场，每次翻转持续累积奖池，终局胜利阵营平分全场金库！
+                100 个神秘箱子、红绿两方势均力敌。质押 30 GAME 入场，每次翻转持续累积奖池，终局胜利阵营平分全场金库！
               </p>
             </div>
             <div className="rate-badge">
@@ -770,7 +776,7 @@ export default function Home() {
                 <input
                   type="checkbox"
                   checked={useEr}
-                  disabled={!erEndpoint}
+                  disabled={!erEndpoint || (player !== null && playerErEndpoint !== erEndpoint)}
                   onChange={(e) => setUseEr(e.target.checked)}
                 />
                 启用 ER 极速通道
@@ -851,7 +857,7 @@ export default function Home() {
                       👉 步骤 3：支付并加入战局 (Join Game)
                     </h4>
                     <p style={{ margin: 0, fontSize: "12px", color: "var(--muted-light)", lineHeight: "1.5" }}>
-                      固定保证金 100 GAME 入池。请选择预存翻箱点击额度（每次翻箱扣 1 GAME，未消耗额度终局 100% 原路返还）。
+                      固定保证金 30 GAME 入池。请选择预存翻箱点击额度（每次翻箱扣 1 GAME，未消耗额度终局 100% 原路返还）。
                     </p>
 
                     {!joinIsOpen && (
@@ -937,31 +943,19 @@ export default function Home() {
                       </div>
                     </div>
 
-                    {/* ER Delegation Buttons */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                      <button
-                        className="btn-secondary"
-                        disabled={busy || !wallet.publicKey}
-                        onClick={() => wallet.publicKey && send("委托我的玩家状态到 ER", delegateIx(wallet.publicKey, currentId, 1))}
-                      >
-                        <Zap size={14} color="#f59e0b" /> 委托玩家状态到 MagicBlock ER
-                      </button>
-                      <button
-                        className="btn-secondary"
-                        disabled={busy || !wallet.publicKey}
-                        onClick={() => wallet.publicKey && send("房主委托游戏状态到 ER", delegateIx(wallet.publicKey, currentId, 0))}
-                      >
-                        <Zap size={14} color="#38bdf8" /> 房主委托游戏全局状态到 ER
-                      </button>
-                    </div>
+                    <p style={{ margin: 0, fontSize: "12px", color: "var(--muted)" }}>
+                      报名期间 Game 与 Player 保留在 Devnet；开局后再委托到 MagicBlock ER，确保其他玩家可以正常加入。
+                    </p>
                   </div>
                 )}
 
                 {/* STEP 5 LAUNCHER: Start Game Button */}
                 <div style={{ marginTop: "auto", borderTop: "1px solid var(--line)", paddingTop: "14px" }}>
                   <div style={{ marginBottom: "10px", fontSize: "12px", color: "var(--muted)" }}>
-                    {game.playerCount < 10 ? (
-                      <span>⚠️ 最少需 10 名玩家方可开启对战（当前还差 {10 - game.playerCount} 人）</span>
+                    {game.playerCount < 2 ? (
+                      <span>⚠️ 最少需 2 名玩家方可开启对战（当前还差 {2 - game.playerCount} 人）</span>
+                    ) : joinIsOpen ? (
+                      <span>⏳ 已满足人数，报名倒计时结束后即可开局。</span>
                     ) : (
                       <span style={{ color: "#86efac" }}>🔥 已达到开局条件（当前已集结 {game.playerCount} 人）！</span>
                     )}
@@ -969,8 +963,8 @@ export default function Home() {
                   <button
                     className="btn-primary"
                     style={{ width: "100%", height: "48px", fontSize: "16px" }}
-                    disabled={busy || !wallet.publicKey || game.playerCount < 10}
-                    onClick={() => wallet.publicKey && send("开始游戏", simpleGameIx(5, wallet.publicKey, currentId), useEr)}
+                    disabled={busy || !wallet.publicKey || game.playerCount < 2 || joinIsOpen}
+                    onClick={() => wallet.publicKey && send("开始游戏", simpleGameIx(5, wallet.publicKey, currentId))}
                   >
                     <Swords size={18} /> 开启 5 分钟翻箱大战 (Step 5)
                   </button>
@@ -988,6 +982,19 @@ export default function Home() {
                   <h3 style={{ margin: "4px 0", fontSize: "22px", fontWeight: 800 }}>
                     实时对战翻箱中 (Step 5)
                   </h3>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                  {player && (
+                    <button className="btn-secondary" disabled={busy || !wallet.publicKey || !!playerErEndpoint} onClick={() => wallet.publicKey && send("委托我的玩家状态到 ER", delegateIx(wallet.publicKey, currentId, 1))}>
+                      <Zap size={14} /> 委托我的 Player
+                    </button>
+                  )}
+                  {wallet.publicKey && game.creator?.equals(wallet.publicKey) && (
+                    <button className="btn-secondary" disabled={busy || !!erEndpoint} onClick={() => wallet.publicKey && send("委托游戏状态到 ER", delegateIx(wallet.publicKey, currentId, 0))}>
+                      <Zap size={14} /> 委托 Game 到 ER
+                    </button>
+                  )}
                 </div>
 
                 {/* Match Timer Countdown */}
@@ -1153,7 +1160,11 @@ export default function Home() {
                       className="btn-secondary"
                       style={{ fontSize: "12px", padding: "8px 12px" }}
                       disabled={busy || !wallet.publicKey}
-                      onClick={() => wallet.publicKey && send("解除游戏与玩家委托回写主链", undelegateIx(wallet.publicKey, pda.game(currentId)), true)}
+                      onClick={() => wallet.publicKey && send(
+                        "解除游戏与玩家委托回写主链",
+                        [undelegateIx(wallet.publicKey, pda.player(pda.game(currentId), wallet.publicKey)), undelegateIx(wallet.publicKey, pda.game(currentId))],
+                        true
+                      )}
                     >
                       解除 MagicBlock 委托并回写主链
                     </button>
@@ -1222,7 +1233,7 @@ export default function Home() {
               <div>⏳ 报名招募截止：由你设置的游戏开始时间</div>
               <div>⚔️ 竞技对抗时间：300 秒 (5 分钟)</div>
               <div>👥 开局要求：2 ～ 100 人</div>
-              <div>💰 保证金：100 GAME / 人</div>
+              <div>💰 保证金：30 GAME / 人</div>
             </div>
 
             <button
