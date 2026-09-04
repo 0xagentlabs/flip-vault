@@ -4,6 +4,7 @@ import {
   PROGRAM_ID,
   pda,
   buyIx,
+  buyIxs,
   redeemIx,
   createGameIx,
   joinIx,
@@ -36,6 +37,11 @@ assert.equal(buy.data[0], 1);
 assert.equal(buy.data.length, 9);
 assert.equal(buy.data.readBigUInt64LE(1), 100n);
 assert.equal(buy.keys.length, 7);
+
+const buyInstructions = buyIxs(dummyWallet, 100n);
+assert.equal(buyInstructions.length, 2);
+assert.equal(buyInstructions[1].data[0], 1);
+assert.equal(buyInstructions[1].keys[4].pubkey.toBase58(), buyInstructions[0].keys[1].pubkey.toBase58());
 
 // 3. Redeem instruction encoding
 const redeem = redeemIx(dummyWallet, 50n);
@@ -159,5 +165,4 @@ run().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-
 

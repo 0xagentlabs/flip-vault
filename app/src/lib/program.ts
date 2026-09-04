@@ -66,6 +66,13 @@ export function buyIx(wallet: PublicKey, amount: bigint) { return ix(1, [
   { pubkey: getAssociatedTokenAddressSync(GAME_MINT, wallet), isSigner: false, isWritable: true }, { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
   { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
 ], u64(amount)); }
+export function buyIxs(wallet: PublicKey, amount: bigint) {
+  const buyerToken = getAssociatedTokenAddressSync(GAME_MINT, wallet);
+  return [
+    createAssociatedTokenAccountIdempotentInstruction(wallet, buyerToken, wallet, GAME_MINT),
+    buyIx(wallet, amount),
+  ];
+}
 export function redeemIx(wallet: PublicKey, amount: bigint) { return ix(2, [
   { pubkey: wallet, isSigner: true, isWritable: true }, { pubkey: pda.config(), isSigner: false, isWritable: false },
   { pubkey: pda.treasury(), isSigner: false, isWritable: true }, { pubkey: GAME_MINT, isSigner: false, isWritable: true },
