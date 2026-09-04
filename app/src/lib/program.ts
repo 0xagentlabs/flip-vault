@@ -63,13 +63,139 @@ export function undelegateIx(wallet: PublicKey, target: PublicKey) { return ix(1
   { pubkey: wallet, isSigner: true, isWritable: false }, { pubkey: target, isSigner: false, isWritable: true },
   { pubkey: MAGIC_CONTEXT, isSigner: false, isWritable: true }, { pubkey: MAGIC_PROGRAM, isSigner: false, isWritable: false },
 ]); }
-export type GameState = { id: bigint; status: number; playerCount: number; redPlayers: number; greenPlayers: number; redBoxes: number; greenBoxes: number; pool: bigint; flips: bigint; endAt: bigint; winner: number; boxes: boolean[] };
+export type GameState = {
+  id: bigint;
+  pubkey?: PublicKey;
+  creator?: PublicKey;
+  status: number;
+  createdAt?: bigint;
+  joinDeadline?: bigint;
+  endAt: bigint;
+  playerCount: number;
+  redPlayers: number;
+  greenPlayers: number;
+  redBoxes: number;
+  greenBoxes: number;
+  pool: bigint;
+  flips: bigint;
+  seed?: number;
+  winner: number;
+  bump?: number;
+  boxes: boolean[];
+};
+
+export type PlayerState = {
+  game: PublicKey;
+  wallet: PublicKey;
+  joinIndex: number;
+  team: number;
+  contributed: bigint;
+  unusedCredits: bigint;
+  claimed: boolean;
+  bump: number;
+};
+
 export async function fetchGame(connection: Connection, id: bigint): Promise<GameState | null> {
-  const info = await connection.getAccountInfo(pda.game(id));
+  const gamePubkey = pda.game(id);
+  const info = await connection.getAccountInfo(gamePubkey);
   if (!info || !info.owner.equals(PROGRAM_ID) || info.data.length !== 224 || info.data[0] !== 2) return null;
-  const d = info.data; const boxes = Array.from({ length: 100 }, (_, i) => (d[169 + Math.floor(i / 8)] & (1 << (i % 8))) !== 0);
-  return { id: d.readBigUInt64LE(1), status: d[105], endAt: d.readBigInt64LE(134), playerCount: d.readUInt16LE(142), redPlayers: d.readUInt16LE(144), greenPlayers: d.readUInt16LE(146), redBoxes: d[148], greenBoxes: d[149], pool: d.readBigUInt64LE(150), flips: d.readBigUInt64LE(158), winner: d[167], boxes };
+  const d = info.data;
+  const boxes = Array.from({ length: 100 }, (_, i) => (d[169 + Math.floor(i / 8)] & (1 << (i % 8))) !== 0);
+  return {
+    id: d.readBigUInt64LE(1),
+    pubkey: gamePubkey,
+    creator: new PublicKey(d.subarray(9, 41)),
+    status: d[105],
+    createdAt: d.readBigInt64LE(106),
+    joinDeadline: d.readBigInt64LE(126),
+    endAt: d.readBigInt64LE(134),
+    playerCount: d.readUInt16LE(142),
+    redPlayers: d.readUInt16LE(144),
+    greenPlayers: d.readUInt16LE(146),
+    redBoxes: d[148],
+    greenBoxes: d[149],
+    pool: d.readBigUInt64LE(150),
+    flips: d.readBigUInt64LE(158),
+    seed: d[166],
+    winner: d[167],
+    bump: d[168],
+    boxes,
+  };
 }
+
+export async function fetchAllGames(connection: Connection): Promise<GameState[]> {
+  try {
+    const accounts = await connection.getProgramAccounts(PROGRAM_ID, {
+      filters: [{ dataSize: 224 }],
+    });
+    const games: GameState[] = [];
+    for (const { pubkey, account } of accounts) {
+      if (account.data.length !== 224 || account.data[0] !== 2) continue;
+      const d = account.data;
+      const boxes = Array.from({ length: 100 }, (_, i) => (d[169 + Math.floor(i / 8)] & (1 << (i % 8))) !== 0);
+      games.push({
+        id: d.readBigUInt64LE(1),
+        pubkey,
+        creator: new PublicKey(d.subarray(9, 41)),
+        status: d[105],
+        createdAt: d.readBigInt64LE(106),
+        joinDeadline: d.readBigInt64LE(126),
+        endAt: d.readBigInt64LE(134),
+        playerCount: d.readUInt16LE(142),
+        redPlayers: d.readUInt16LE(144),
+        greenPlayers: d.readUInt16LE(146),
+        redBoxes: d[148],
+        greenBoxes: d[149],
+        pool: d.readBigUInt64LE(150),
+        flips: d.readBigUInt64LE(158),
+        seed: d[166],
+        winner: d[167],
+        bump: d[168],
+        boxes,
+      });
+    }
+    return games.sort((a, b) => (b.id > a.id ? 1 : b.id < a.id ? -1 : 0));
+  } catch (e) {
+    console.error("Failed to fetch all games:", e);
+    return [];
+  }
+}
+
+export async function fetchPlayer(connection: Connection, gameId: bigint, wallet: PublicKey): Promise<PlayerState | null> {
+  try {
+    const playerPubkey = pda.player(pda.game(gameId), wallet);
+    const info = await connection.getAccountInfo(playerPubkey);
+    if (!info || !info.owner.equals(PROGRAM_ID) || info.data.length !== 96 || info.data[0] !== 3) return null;
+    const d = info.data;
+    return {
+      game: new PublicKey(d.subarray(1, 33)),
+      wallet: new PublicKey(d.subarray(33, 65)),
+      joinIndex: d.readUInt16LE(65),
+      team: d[67],
+      contributed: d.readBigUInt64LE(68),
+      unusedCredits: d.readBigUInt64LE(76),
+      claimed: d[84] !== 0,
+      bump: d[85],
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchBalances(connection: Connection, wallet: PublicKey): Promise<{ sol: number; game: bigint }> {
+  let sol = 0;
+  let game = 0n;
+  try {
+    sol = await connection.getBalance(wallet);
+  } catch {}
+  try {
+    const ata = getAssociatedTokenAddressSync(GAME_MINT, wallet);
+    const bal = await connection.getTokenAccountBalance(ata);
+    game = BigInt(bal.value.amount);
+  } catch {}
+  return { sol, game };
+}
+
 export async function resolveErEndpoint(game: PublicKey): Promise<string | null> {
   const response = await fetch(ROUTER_RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getDelegationStatus", params: [game.toBase58()] }) });
   const json = await response.json(); return json?.result?.fqdn ?? null;
