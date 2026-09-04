@@ -161,7 +161,7 @@ export default function Home() {
       try {
         const storedIds = JSON.parse(localStorage.getItem("flip-vault-known-games") ?? "[]") as string[];
         const knownIds = [...gamesRef.current.map((item) => item.id), ...storedIds.map((id) => BigInt(id))];
-        const all = await fetchAllGames(connection, knownIds);
+        const all = await fetchAllGames(connection, knownIds, executionMode === "magicblock");
         if (active) setGames(all);
       } catch (err) {
         console.error("Failed to load lobby games", err);
@@ -182,7 +182,7 @@ export default function Home() {
       active = false;
       clearInterval(timer);
     };
-  }, [connection, viewTab, wallet.publicKey]);
+  }, [connection, executionMode, viewTab, wallet.publicKey]);
 
   // Poll current game & player
   useEffect(() => {
@@ -193,7 +193,7 @@ export default function Home() {
       if (inFlight || document.hidden || busy) return;
       inFlight = true;
       try {
-        const gameSnapshot = await fetchGameSnapshot(connection, currentId, erEndpoint);
+        const gameSnapshot = await fetchGameSnapshot(connection, currentId, erEndpoint, executionMode === "magicblock");
         const g = gameSnapshot.state;
         if (!active) return;
         setGame(g);
@@ -206,7 +206,7 @@ export default function Home() {
       }
       if (wallet.publicKey) {
         try {
-          const playerSnapshot = await fetchPlayerSnapshot(connection, currentId, wallet.publicKey, playerErEndpoint);
+          const playerSnapshot = await fetchPlayerSnapshot(connection, currentId, wallet.publicKey, playerErEndpoint, executionMode === "magicblock");
           if (active) {
             setPlayer(playerSnapshot.state);
             setPlayerErEndpoint(playerSnapshot.erEndpoint);
@@ -228,13 +228,13 @@ export default function Home() {
       active = false;
       clearInterval(timer);
     };
-  }, [busy, connection, currentId, erEndpoint, playerErEndpoint, viewTab, wallet.publicKey]);
+  }, [busy, connection, currentId, erEndpoint, executionMode, playerErEndpoint, viewTab, wallet.publicKey]);
 
   const refreshAll = useCallback(async () => {
     setLoadingGames(true);
     try {
       if (viewTab === "lobby") {
-        const all = await fetchAllGames(connection, gamesRef.current.map((item) => item.id));
+        const all = await fetchAllGames(connection, gamesRef.current.map((item) => item.id), executionMode === "magicblock");
         setGames(all);
       }
       const g = await fetchGame(connection, currentId, erEndpoint);
@@ -250,7 +250,7 @@ export default function Home() {
     } finally {
       setLoadingGames(false);
     }
-  }, [connection, currentId, erEndpoint, playerErEndpoint, viewTab, wallet.publicKey]);
+  }, [connection, currentId, erEndpoint, executionMode, playerErEndpoint, viewTab, wallet.publicKey]);
 
   // Transaction runner
   const send = async (

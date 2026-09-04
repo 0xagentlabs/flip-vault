@@ -30,7 +30,7 @@
 
 `s` 表示 signer，`w` 表示 writable。客户端支持两种互斥执行模式：
 
-- **纯链上模式（默认）**：不执行 Tag 9/10，Tag 0～8 全部发送到 Solana Devnet；Game 与 Player 始终由本程序持有。
+- **纯链上模式（默认）**：不执行 Tag 9/10，Tag 0～8 全部发送到 Solana Devnet；读取与交易只使用 Solana RPC，不调用 MagicBlock Router/ER；Game 与 Player 始终由本程序持有。
 - **MagicBlock ER 模式**：Base Layer 执行 0～5、8、9；委托完成后，6、7、10 发往 Router 返回的 ER `fqdn`。Game 与当前 Player 必须解析到同一 `fqdn` 才能翻箱或结算；Tag 10 回写完成后再在 Base Layer 执行 Tag 8。
 
 执行模式是客户端路由策略，不写入链上状态，也不改变 Tag 0～10 的二进制布局。已委托的账户不能直接切回纯链上操作，必须先在 ER 执行 CommitAndUndelegate 并等待 Base Layer 恢复本程序 owner。
