@@ -2,7 +2,7 @@ import { AccountMeta, Connection, PublicKey, SystemProgram, TransactionInstructi
 import { TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from "@solana/spl-token";
 
 export const PROGRAM_ID = new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID ?? "ADTfCpeekasxSNZNgSPgqfyRzxJ7BA4dtaBcoj8JQe8i");
-export const GAME_MINT = new PublicKey(process.env.NEXT_PUBLIC_GAME_MINT ?? "11111111111111111111111111111111");
+export const GAME_MINT = new PublicKey(process.env.NEXT_PUBLIC_GAME_MINT ?? "Ay4P9UVG3X6TQ55JD5e5EWun8hAcUCc8SGn39EG79jdD");
 export const BASE_RPC = process.env.NEXT_PUBLIC_BASE_RPC ?? "https://rpc.magicblock.app/devnet";
 export const ROUTER_RPC = process.env.NEXT_PUBLIC_ROUTER_RPC ?? "https://devnet-router.magicblock.app";
 export const DELEGATION_PROGRAM = new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh");

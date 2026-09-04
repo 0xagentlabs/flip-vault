@@ -680,8 +680,8 @@ fn commit_and_undelegate(accounts: &mut [AccountView]) -> ProgramResult {
     };
     require_signer(payer)?;
     let mut data = [0u8; INTENT_BUNDLE_SIZE];
-    MagicIntentBundleBuilder::new(payer.clone(), magic_context.clone(), magic_program.clone())
-        .commit_and_undelegate(&[target.clone()])
+    MagicIntentBundleBuilder::new(*payer, *magic_context, *magic_program)
+        .commit_and_undelegate(core::slice::from_ref(target))
         .build_and_invoke(&mut data)
 }
 fn callback_undelegate(
@@ -766,6 +766,7 @@ pub fn process_instruction(
 
 no_allocator!();
 nostd_panic_handler!();
+#[allow(clippy::missing_safety_doc)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn entrypoint(input: *mut u8) -> u64 {
     const UNINIT: MaybeUninit<AccountView> = MaybeUninit::uninit();
