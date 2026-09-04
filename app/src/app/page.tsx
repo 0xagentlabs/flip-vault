@@ -30,14 +30,15 @@ import {
   fetchAllGames,
   fetchBalances,
   fetchGame,
+  fetchGameSnapshot,
   findAvailableGameId,
   fetchPlayer,
+  fetchPlayerSnapshot,
   flipIx,
   GameState,
   joinIx,
   pda,
   PlayerState,
-  resolveErEndpoint,
   simpleGameIx,
   undelegateIx,
   PROGRAM_ID,
@@ -138,10 +139,11 @@ export default function Home() {
 
   // Poll lobby & balances
   useEffect(() => {
+    if (viewTab !== "lobby") return;
     let active = true;
     let inFlight = false;
     const fetchLobbyData = async () => {
-      if (inFlight) return;
+      if (inFlight || document.hidden) return;
       inFlight = true;
       try {
         const storedIds = JSON.parse(localStorage.getItem("flip-vault-known-games") ?? "[]") as string[];
@@ -162,42 +164,40 @@ export default function Home() {
       inFlight = false;
     };
     fetchLobbyData();
-    const timer = setInterval(fetchLobbyData, 15_000);
+    const timer = setInterval(fetchLobbyData, 60_000);
     return () => {
       active = false;
       clearInterval(timer);
     };
-  }, [connection, wallet.publicKey]);
+  }, [connection, viewTab, wallet.publicKey]);
 
   // Poll current game & player
   useEffect(() => {
+    if (viewTab !== "arena") return;
     let active = true;
     let inFlight = false;
     const fetchCurrentData = async () => {
-      if (inFlight) return;
+      if (inFlight || document.hidden || busy) return;
       inFlight = true;
       try {
-        const g = await fetchGame(connection, currentId);
+        const gameSnapshot = await fetchGameSnapshot(connection, currentId, erEndpoint);
+        const g = gameSnapshot.state;
         if (!active) return;
         setGame(g);
+        setErEndpoint(gameSnapshot.erEndpoint);
         if (g) {
           setOptimisticBoxes(null);
-          try {
-            const endpoint = await resolveErEndpoint(pda.game(currentId));
-            if (active) setErEndpoint(endpoint);
-          } catch {
-            if (active) setErEndpoint(null);
-          }
         }
       } catch (err) {
         console.error("Failed to fetch game", err);
       }
       if (wallet.publicKey) {
         try {
-          const p = await fetchPlayer(connection, currentId, wallet.publicKey);
-          if (active) setPlayer(p);
-          const playerEndpoint = await resolveErEndpoint(pda.player(pda.game(currentId), wallet.publicKey));
-          if (active) setPlayerErEndpoint(playerEndpoint);
+          const playerSnapshot = await fetchPlayerSnapshot(connection, currentId, wallet.publicKey, playerErEndpoint);
+          if (active) {
+            setPlayer(playerSnapshot.state);
+            setPlayerErEndpoint(playerSnapshot.erEndpoint);
+          }
         } catch {
           if (active) {
             setPlayer(null);
@@ -210,23 +210,25 @@ export default function Home() {
       inFlight = false;
     };
     fetchCurrentData();
-    const timer = setInterval(fetchCurrentData, 2500);
+    const timer = setInterval(fetchCurrentData, 5000);
     return () => {
       active = false;
       clearInterval(timer);
     };
-  }, [connection, currentId, wallet.publicKey]);
+  }, [busy, connection, currentId, erEndpoint, playerErEndpoint, viewTab, wallet.publicKey]);
 
   const refreshAll = useCallback(async () => {
     setLoadingGames(true);
     try {
-      const all = await fetchAllGames(connection, gamesRef.current.map((item) => item.id));
-      setGames(all);
-      const g = await fetchGame(connection, currentId);
+      if (viewTab === "lobby") {
+        const all = await fetchAllGames(connection, gamesRef.current.map((item) => item.id));
+        setGames(all);
+      }
+      const g = await fetchGame(connection, currentId, erEndpoint);
       setGame(g);
       if (wallet.publicKey) {
         const [p, b] = await Promise.all([
-          fetchPlayer(connection, currentId, wallet.publicKey),
+          fetchPlayer(connection, currentId, wallet.publicKey, playerErEndpoint),
           fetchBalances(connection, wallet.publicKey),
         ]);
         setPlayer(p);
@@ -235,7 +237,7 @@ export default function Home() {
     } finally {
       setLoadingGames(false);
     }
-  }, [connection, currentId, wallet.publicKey]);
+  }, [connection, currentId, erEndpoint, playerErEndpoint, viewTab, wallet.publicKey]);
 
   // Transaction runner
   const send = async (

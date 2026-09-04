@@ -192,15 +192,28 @@ function parseGameAccount(info: Awaited<ReturnType<Connection["getAccountInfo"]>
   };
 }
 
-export async function fetchGame(connection: Connection, id: bigint): Promise<GameState | null> {
+export async function fetchGameSnapshot(connection: Connection, id: bigint, erEndpoint?: string | null): Promise<{ state: GameState | null; erEndpoint: string | null }> {
   const gamePubkey = pda.game(id);
+  if (erEndpoint) {
+    try {
+      const erGame = parseGameAccount(await connectionFor(erEndpoint).getAccountInfo(gamePubkey), gamePubkey);
+      if (erGame) return { state: erGame, erEndpoint };
+    } catch {
+      // Fall back to the base layer so a stale/unavailable ER endpoint does not hide committed state.
+    }
+  }
   const baseInfo = await connection.getAccountInfo(gamePubkey);
   const baseGame = parseGameAccount(baseInfo, gamePubkey);
-  if (baseGame) return baseGame;
-  if (!baseInfo?.owner.equals(DELEGATION_PROGRAM)) return null;
-  const endpoint = await resolveErEndpoint(gamePubkey);
-  if (!endpoint) return null;
-  return parseGameAccount(await connectionFor(endpoint).getAccountInfo(gamePubkey), gamePubkey);
+  if (baseGame) return { state: baseGame, erEndpoint: null };
+  if (!baseInfo?.owner.equals(DELEGATION_PROGRAM)) return { state: null, erEndpoint: null };
+  const endpoint = erEndpoint ?? await resolveErEndpoint(gamePubkey);
+  if (!endpoint || endpoint === erEndpoint) return { state: null, erEndpoint: endpoint };
+  const state = parseGameAccount(await connectionFor(endpoint).getAccountInfo(gamePubkey), gamePubkey);
+  return { state, erEndpoint: endpoint };
+}
+
+export async function fetchGame(connection: Connection, id: bigint, erEndpoint?: string | null): Promise<GameState | null> {
+  return (await fetchGameSnapshot(connection, id, erEndpoint)).state;
 }
 
 /**
@@ -277,30 +290,48 @@ export async function fetchAllGames(connection: Connection, knownIds: bigint[] =
   }
 }
 
-export async function fetchPlayer(connection: Connection, gameId: bigint, wallet: PublicKey): Promise<PlayerState | null> {
+export async function fetchPlayerSnapshot(connection: Connection, gameId: bigint, wallet: PublicKey, erEndpoint?: string | null): Promise<{ state: PlayerState | null; erEndpoint: string | null }> {
   try {
     const playerPubkey = pda.player(pda.game(gameId), wallet);
+    if (erEndpoint) {
+      try {
+        const erInfo = await connectionFor(erEndpoint).getAccountInfo(playerPubkey);
+        const erPlayer = parsePlayerAccount(erInfo);
+        if (erPlayer) return { state: erPlayer, erEndpoint };
+      } catch {
+        // Fall back to the base layer for stale or temporarily unavailable ER endpoints.
+      }
+    }
     let info = await connection.getAccountInfo(playerPubkey);
     if (info?.owner.equals(DELEGATION_PROGRAM)) {
-      const endpoint = await resolveErEndpoint(playerPubkey);
+      const endpoint = erEndpoint ?? await resolveErEndpoint(playerPubkey);
       if (endpoint) info = await connectionFor(endpoint).getAccountInfo(playerPubkey);
+      return { state: parsePlayerAccount(info), erEndpoint: endpoint };
     }
-    if (!info || !info.owner.equals(PROGRAM_ID) || info.data.length !== 96 || info.data[0] !== 3) return null;
-    const d = info.data;
-    const view = new DataView(d.buffer, d.byteOffset, d.byteLength);
-    return {
-      game: new PublicKey(d.subarray(1, 33)),
-      wallet: new PublicKey(d.subarray(33, 65)),
-      joinIndex: view.getUint16(65, true),
-      team: d[67],
-      contributed: view.getBigUint64(68, true),
-      unusedCredits: view.getBigUint64(76, true),
-      claimed: d[84] !== 0,
-      bump: d[85],
-    };
+    return { state: parsePlayerAccount(info), erEndpoint: null };
   } catch {
-    return null;
+    return { state: null, erEndpoint: erEndpoint ?? null };
   }
+}
+
+export async function fetchPlayer(connection: Connection, gameId: bigint, wallet: PublicKey, erEndpoint?: string | null): Promise<PlayerState | null> {
+  return (await fetchPlayerSnapshot(connection, gameId, wallet, erEndpoint)).state;
+}
+
+function parsePlayerAccount(info: Awaited<ReturnType<Connection["getAccountInfo"]>>): PlayerState | null {
+  if (!info || !info.owner.equals(PROGRAM_ID) || info.data.length !== 96 || info.data[0] !== 3) return null;
+  const d = info.data;
+  const view = new DataView(d.buffer, d.byteOffset, d.byteLength);
+  return {
+    game: new PublicKey(d.subarray(1, 33)),
+    wallet: new PublicKey(d.subarray(33, 65)),
+    joinIndex: view.getUint16(65, true),
+    team: d[67],
+    contributed: view.getBigUint64(68, true),
+    unusedCredits: view.getBigUint64(76, true),
+    claimed: d[84] !== 0,
+    bump: d[85],
+  };
 }
 
 export async function fetchBalances(connection: Connection, wallet: PublicKey): Promise<{ sol: number; game: bigint }> {
