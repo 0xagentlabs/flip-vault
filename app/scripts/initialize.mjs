@@ -12,6 +12,7 @@ const payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(w
 const [config] = PublicKey.findProgramAddressSync([Buffer.from("config")], PROGRAM_ID);
 const [treasury] = PublicKey.findProgramAddressSync([Buffer.from("treasury")], PROGRAM_ID);
 const id = Buffer.alloc(8); id.writeBigUInt64LE(0n);
+const startAt = Buffer.alloc(8); startAt.writeBigInt64LE(BigInt(Math.floor(Date.now() / 1000) + 300));
 const [game] = PublicKey.findProgramAddressSync([Buffer.from("game"), id], PROGRAM_ID);
 const vault = getAssociatedTokenAddressSync(MINT, game, true);
 const initialize = new TransactionInstruction({ programId: PROGRAM_ID, keys: [
@@ -27,7 +28,7 @@ const createGame = new TransactionInstruction({ programId: PROGRAM_ID, keys: [
   { pubkey: payer.publicKey, isSigner: true, isWritable: true }, { pubkey: config, isSigner: false, isWritable: false },
   { pubkey: game, isSigner: false, isWritable: true }, { pubkey: MINT, isSigner: false, isWritable: false },
   { pubkey: vault, isSigner: false, isWritable: false }, { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-], data: Buffer.concat([Buffer.from([3]), id]) });
+], data: Buffer.concat([Buffer.from([3]), id, startAt]) });
 const gameTx = new Transaction().add(createAssociatedTokenAccountIdempotentInstruction(payer.publicKey, vault, game, MINT), createGame);
 gameTx.feePayer = payer.publicKey; gameTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
 const gameSimulation = await connection.simulateTransaction(gameTx, [payer]);

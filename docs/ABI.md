@@ -18,7 +18,7 @@
 | 0 | Initialize | 无 | admin `[sw]`, config `[w]`, treasury `[w]`, mint, system |
 | 1 | Buy | `amount:u64`（整枚 GAME） | buyer `[sw]`, config, treasury `[w]`, mint `[w]`, buyer ATA `[w]`, system, token |
 | 2 | Redeem | `amount:u64` | user `[sw]`, config, treasury `[w]`, mint `[w]`, user ATA `[w]`, token |
-| 3 | CreateGame | `game_id:u64` | creator `[sw]`, config, game `[w]`, mint, game vault ATA, system |
+| 3 | CreateGame | `game_id:u64, start_at:i64`（Unix 秒，必须晚于链上当前时间） | creator `[sw]`, config, game `[w]`, mint, game vault ATA, system |
 | 4 | Join | `game_id:u64, click_credits:u64` | user `[sw]`, game `[w]`, player `[w]`, user ATA `[w]`, vault `[w]`, system, token |
 | 5 | Start | 无 | caller `[s]`, game `[w]` |
 | 6 | Flip | `box_index:u8`（0..99） | player wallet `[s]`, game `[w]`, player `[w]` |
@@ -29,6 +29,8 @@
 | 196 | Undelegate callback | MagicBlock 编码的 seed payload | delegated `[w]`, buffer `[s]`, payer `[w]`, system, ... |
 
 `s` 表示 signer，`w` 表示 writable。Base Layer 执行 0～5、8、9；委托完成后，6、7、10 发往 Router 返回的 ER `fqdn`。
+
+委托后的 Game/Player 在 Base Layer 由 Delegation Program 持有。读取方必须先调用 Router `getDelegationStatus`，仅当 `isDelegated=true` 且 `fqdn` 有效时从该 ER endpoint 读取，并继续校验 ER 账户 owner 为本 Program、数据长度和 discriminator。
 
 ## 状态
 
@@ -47,7 +49,7 @@
 | 73 | vault `Pubkey` |
 | 105 | status：0 报名、1 游戏、2 已结算 |
 | 106 | created_at `i64` |
-| 126 | join_deadline `i64` |
+| 126 | start_at `i64`（同时是报名截止时间） |
 | 134 | end_at `i64` |
 | 142/144/146 | 玩家总数/红方/绿方 `u16` |
 | 148/149 | 红箱/绿箱 `u8` |
@@ -62,4 +64,3 @@
 ## 错误码
 
 `6000` malformed data；`6001` invalid account；`6002` invalid owner；`6003` duplicate init；`6004` bad status；`6005` join closed；`6006` player limit；`6007` insufficient players；`6008` inactive game；`6009` not ended；`6010` no click credits；`6011` already claimed；`6012` no claimable balance；`6013` arithmetic overflow；`6014` insufficient SOL reserve。
-

@@ -14,6 +14,7 @@ import {
   delegateIx,
   undelegateIx,
   u64,
+  i64,
   fetchGame,
 } from "../app/src/lib/program";
 
@@ -51,10 +52,12 @@ assert.equal(redeem.data.readBigUInt64LE(1), 50n);
 assert.equal(redeem.keys.length, 6);
 
 // 4. CreateGame instruction encoding
-const createGame = createGameIx(dummyWallet, gameId);
+const startAt = 1_800_000_000n;
+const createGame = createGameIx(dummyWallet, gameId, startAt);
 assert.equal(createGame.data[0], 3);
-assert.equal(createGame.data.length, 9);
+assert.equal(createGame.data.length, 17);
 assert.equal(createGame.data.readBigUInt64LE(1), gameId);
+assert.equal(createGame.data.readBigInt64LE(9), startAt);
 assert.equal(createGame.keys.length, 6);
 
 // 5. Join instruction encoding
@@ -113,6 +116,7 @@ assert.equal(u64Buf.length, 8);
 const view = new DataView(u64Buf.buffer, u64Buf.byteOffset, 8);
 assert.equal(view.getBigUint64(0, true), 123456789012345n);
 assert.equal(u64Buf.readBigUInt64LE(0), 123456789012345n);
+assert.equal(i64(-123n).readBigInt64LE(0), -123n);
 
 const testBuf = Buffer.alloc(8);
 testBuf.writeBigUInt64LE(987654321098765n);
@@ -125,6 +129,7 @@ const mockView = new DataView(mockAccountData.buffer, mockAccountData.byteOffset
 mockView.setBigUint64(1, 42n, true); // id
 mockAccountData[105] = 1; // status Playing
 mockView.setBigInt64(134, 1800000000n, true); // endAt
+mockView.setBigInt64(126, 1799999700n, true); // startAt
 mockView.setUint16(142, 10, true); // playerCount
 mockView.setUint16(144, 4, true); // redPlayers
 mockView.setUint16(146, 6, true); // greenPlayers
@@ -148,6 +153,7 @@ async function run() {
   assert.notEqual(parsedGame, null);
   assert.equal(parsedGame?.id, 42n);
   assert.equal(parsedGame?.status, 1);
+  assert.equal(parsedGame?.startAt, 1799999700n);
   assert.equal(parsedGame?.endAt, 1800000000n);
   assert.equal(parsedGame?.playerCount, 10);
   assert.equal(parsedGame?.redPlayers, 4);
@@ -165,4 +171,3 @@ run().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-

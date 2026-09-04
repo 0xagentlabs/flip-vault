@@ -53,6 +53,11 @@ export const u64 = (value: bigint | number): Buffer => {
   new DataView(out.buffer, out.byteOffset, 8).setBigUint64(0, BigInt(value), true);
   return out;
 };
+export const i64 = (value: bigint | number): Buffer => {
+  const out = Buffer.alloc(8);
+  new DataView(out.buffer, out.byteOffset, 8).setBigInt64(0, BigInt(value), true);
+  return out;
+};
 export const pda = {
   config: () => PublicKey.findProgramAddressSync([Buffer.from("config")], PROGRAM_ID)[0],
   treasury: () => PublicKey.findProgramAddressSync([Buffer.from("treasury")], PROGRAM_ID)[0],
@@ -78,12 +83,12 @@ export function redeemIx(wallet: PublicKey, amount: bigint) { return ix(2, [
   { pubkey: pda.treasury(), isSigner: false, isWritable: true }, { pubkey: GAME_MINT, isSigner: false, isWritable: true },
   { pubkey: getAssociatedTokenAddressSync(GAME_MINT, wallet), isSigner: false, isWritable: true }, { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
 ], u64(amount)); }
-export function createGameIx(wallet: PublicKey, id: bigint) { const game = pda.game(id); return ix(3, [
+export function createGameIx(wallet: PublicKey, id: bigint, startAt: bigint) { const game = pda.game(id); return ix(3, [
   { pubkey: wallet, isSigner: true, isWritable: true }, { pubkey: pda.config(), isSigner: false, isWritable: false },
   { pubkey: game, isSigner: false, isWritable: true }, { pubkey: GAME_MINT, isSigner: false, isWritable: false },
   { pubkey: getAssociatedTokenAddressSync(GAME_MINT, game, true), isSigner: false, isWritable: false }, { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-], u64(id)); }
-export function createGameIxs(wallet: PublicKey, id: bigint) { const game = pda.game(id); const vault = getAssociatedTokenAddressSync(GAME_MINT, game, true); return [createAssociatedTokenAccountIdempotentInstruction(wallet, vault, game, GAME_MINT), createGameIx(wallet, id)]; }
+], Buffer.concat([u64(id), i64(startAt)])); }
+export function createGameIxs(wallet: PublicKey, id: bigint, startAt: bigint) { const game = pda.game(id); const vault = getAssociatedTokenAddressSync(GAME_MINT, game, true); return [createAssociatedTokenAccountIdempotentInstruction(wallet, vault, game, GAME_MINT), createGameIx(wallet, id, startAt)]; }
 export function joinIx(wallet: PublicKey, id: bigint, clickCredits: bigint) { const game = pda.game(id); return ix(4, [
   { pubkey: wallet, isSigner: true, isWritable: true }, { pubkey: game, isSigner: false, isWritable: true },
   { pubkey: pda.player(game, wallet), isSigner: false, isWritable: true }, { pubkey: getAssociatedTokenAddressSync(GAME_MINT, wallet), isSigner: false, isWritable: true },
@@ -119,7 +124,7 @@ export type GameState = {
   creator?: PublicKey;
   status: number;
   createdAt?: bigint;
-  joinDeadline?: bigint;
+  startAt?: bigint;
   endAt: bigint;
   playerCount: number;
   redPlayers: number;
@@ -145,36 +150,30 @@ export type PlayerState = {
   bump: number;
 };
 
-export async function fetchGame(connection: Connection, id: bigint): Promise<GameState | null> {
-  const gamePubkey = pda.game(id);
-  const info = await connection.getAccountInfo(gamePubkey);
+function parseGameAccount(info: Awaited<ReturnType<Connection["getAccountInfo"]>>, gamePubkey: PublicKey): GameState | null {
   if (!info || !info.owner.equals(PROGRAM_ID) || info.data.length !== 224 || info.data[0] !== 2) return null;
   const d = info.data;
   const view = new DataView(d.buffer, d.byteOffset, d.byteLength);
   const boxes = Array.from({ length: 100 }, (_, i) => (d[169 + Math.floor(i / 8)] & (1 << (i % 8))) !== 0);
   return {
-    id: view.getBigUint64(1, true),
-    pubkey: gamePubkey,
-    creator: new PublicKey(d.subarray(9, 41)),
-    status: d[105],
-    createdAt: view.getBigInt64(106, true),
-    joinDeadline: view.getBigInt64(126, true),
-    endAt: view.getBigInt64(134, true),
-    playerCount: view.getUint16(142, true),
-    redPlayers: view.getUint16(144, true),
-    greenPlayers: view.getUint16(146, true),
-    redBoxes: d[148],
-    greenBoxes: d[149],
-    pool: view.getBigUint64(150, true),
-    flips: view.getBigUint64(158, true),
-    seed: d[166],
-    winner: d[167],
-    bump: d[168],
-    boxes,
+    id: view.getBigUint64(1, true), pubkey: gamePubkey, creator: new PublicKey(d.subarray(9, 41)), status: d[105],
+    createdAt: view.getBigInt64(106, true), startAt: view.getBigInt64(126, true), endAt: view.getBigInt64(134, true),
+    playerCount: view.getUint16(142, true), redPlayers: view.getUint16(144, true), greenPlayers: view.getUint16(146, true),
+    redBoxes: d[148], greenBoxes: d[149], pool: view.getBigUint64(150, true), flips: view.getBigUint64(158, true),
+    seed: d[166], winner: d[167], bump: d[168], boxes,
   };
 }
 
-export async function fetchAllGames(connection: Connection): Promise<GameState[]> {
+export async function fetchGame(connection: Connection, id: bigint): Promise<GameState | null> {
+  const gamePubkey = pda.game(id);
+  const baseGame = parseGameAccount(await connection.getAccountInfo(gamePubkey), gamePubkey);
+  if (baseGame) return baseGame;
+  const endpoint = await resolveErEndpoint(gamePubkey);
+  if (!endpoint) return null;
+  return parseGameAccount(await new Connection(endpoint, "confirmed").getAccountInfo(gamePubkey), gamePubkey);
+}
+
+export async function fetchAllGames(connection: Connection, knownIds: bigint[] = []): Promise<GameState[]> {
   try {
     const accounts = await connection.getProgramAccounts(PROGRAM_ID, {
       filters: [{ dataSize: 224 }],
@@ -191,7 +190,7 @@ export async function fetchAllGames(connection: Connection): Promise<GameState[]
         creator: new PublicKey(d.subarray(9, 41)),
         status: d[105],
         createdAt: view.getBigInt64(106, true),
-        joinDeadline: view.getBigInt64(126, true),
+        startAt: view.getBigInt64(126, true),
         endAt: view.getBigInt64(134, true),
         playerCount: view.getUint16(142, true),
         redPlayers: view.getUint16(144, true),
@@ -206,6 +205,11 @@ export async function fetchAllGames(connection: Connection): Promise<GameState[]
         boxes,
       });
     }
+    const visibleIds = new Set(games.map((game) => game.id.toString()));
+    const delegated = await Promise.all(
+      knownIds.filter((id) => !visibleIds.has(id.toString())).map((id) => fetchGame(connection, id))
+    );
+    games.push(...delegated.filter((game): game is GameState => game !== null));
     return games.sort((a, b) => (b.id > a.id ? 1 : b.id < a.id ? -1 : 0));
   } catch (e) {
     console.error("Failed to fetch all games:", e);
@@ -216,7 +220,11 @@ export async function fetchAllGames(connection: Connection): Promise<GameState[]
 export async function fetchPlayer(connection: Connection, gameId: bigint, wallet: PublicKey): Promise<PlayerState | null> {
   try {
     const playerPubkey = pda.player(pda.game(gameId), wallet);
-    const info = await connection.getAccountInfo(playerPubkey);
+    let info = await connection.getAccountInfo(playerPubkey);
+    if (!info || !info.owner.equals(PROGRAM_ID)) {
+      const endpoint = await resolveErEndpoint(playerPubkey);
+      if (endpoint) info = await new Connection(endpoint, "confirmed").getAccountInfo(playerPubkey);
+    }
     if (!info || !info.owner.equals(PROGRAM_ID) || info.data.length !== 96 || info.data[0] !== 3) return null;
     const d = info.data;
     const view = new DataView(d.buffer, d.byteOffset, d.byteLength);
@@ -249,7 +257,9 @@ export async function fetchBalances(connection: Connection, wallet: PublicKey): 
   return { sol, game };
 }
 
-export async function resolveErEndpoint(game: PublicKey): Promise<string | null> {
-  const response = await fetch(ROUTER_RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getDelegationStatus", params: [game.toBase58()] }) });
-  const json = await response.json(); return json?.result?.fqdn ?? null;
+export async function resolveErEndpoint(account: PublicKey): Promise<string | null> {
+  const response = await fetch(ROUTER_RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getDelegationStatus", params: [account.toBase58()] }) });
+  if (!response.ok) return null;
+  const json = await response.json();
+  return json?.result?.isDelegated === true && typeof json.result.fqdn === "string" ? json.result.fqdn : null;
 }

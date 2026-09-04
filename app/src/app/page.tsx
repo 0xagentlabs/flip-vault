@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { Connection, Transaction, TransactionInstruction } from "@solana/web3.js";
@@ -54,6 +54,10 @@ const fmtDuration = (seconds: bigint) => {
   const remainder = total % 60;
   return `${minutes} 分 ${remainder} 秒`;
 };
+const toDateTimeLocalValue = (date: Date) => {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+};
 
 const subscribeClock = (callback: () => void) => {
   const timer = setInterval(callback, 1000);
@@ -83,6 +87,7 @@ export default function Home() {
 
   // Data states
   const [games, setGames] = useState<GameState[]>([]);
+  const gamesRef = useRef<GameState[]>([]);
   const [game, setGame] = useState<GameState | null>(null);
   const [player, setPlayer] = useState<PlayerState | null>(null);
   const [balances, setBalances] = useState<{ sol: number; game: bigint }>({ sol: 0, game: 0n });
@@ -100,6 +105,7 @@ export default function Home() {
   const [customCredits, setCustomCredits] = useState<string>("");
   const [listFilter, setListFilter] = useState<"all" | "recruiting" | "active" | "finalized">("all");
   const [searchIdInput, setSearchIdInput] = useState<string>("");
+  const [gameStartInput, setGameStartInput] = useState<string>(() => toDateTimeLocalValue(new Date(Date.now() + 5 * 60_000)));
 
   const nowSec = useSyncExternalStore(subscribeClock, getClockSnapshot, getServerClockSnapshot);
 
@@ -123,12 +129,19 @@ export default function Home() {
   }
   const suggestedGameId = (maxGameId + 1n).toString();
 
+  useEffect(() => {
+    gamesRef.current = games;
+    if (games.length > 0) localStorage.setItem("flip-vault-known-games", JSON.stringify(games.map((item) => item.id.toString())));
+  }, [games]);
+
   // Poll lobby & balances
   useEffect(() => {
     let active = true;
     const fetchLobbyData = async () => {
       try {
-        const all = await fetchAllGames(connection);
+        const storedIds = JSON.parse(localStorage.getItem("flip-vault-known-games") ?? "[]") as string[];
+        const knownIds = [...gamesRef.current.map((item) => item.id), ...storedIds.map((id) => BigInt(id))];
+        const all = await fetchAllGames(connection, knownIds);
         if (active) setGames(all);
       } catch (err) {
         console.error("Failed to load lobby games", err);
@@ -192,7 +205,7 @@ export default function Home() {
   const refreshAll = useCallback(async () => {
     setLoadingGames(true);
     try {
-      const all = await fetchAllGames(connection);
+      const all = await fetchAllGames(connection, gamesRef.current.map((item) => item.id));
       setGames(all);
       const g = await fetchGame(connection, currentId);
       setGame(g);
@@ -278,9 +291,10 @@ export default function Home() {
     game && game.status === 1 && nowSec > 0 ? Math.max(0, Number(game.endAt) - nowSec) : null;
 
   const joinTimeRemaining =
-    game && game.status === 0 && game.joinDeadline && nowSec > 0
-      ? Math.max(0, Number(game.joinDeadline) - nowSec)
+    game && game.status === 0 && game.startAt && nowSec > 0
+      ? Math.max(0, Number(game.startAt) - nowSec)
       : null;
+  const joinIsOpen = Boolean(game && game.status === 0 && game.startAt && nowSec > 0 && nowSec < Number(game.startAt));
 
   // Box grid data
   const currentBoxes = optimisticBoxes ?? game?.boxes ?? initialBoxes;
@@ -693,7 +707,7 @@ export default function Home() {
               <div className="game-time-grid" aria-label="游戏时间详情">
                 <div>
                   <span>预计开始时间</span>
-                  <strong>{fmtDateTime(game.joinDeadline)}</strong>
+                  <strong>{fmtDateTime(game.startAt)}</strong>
                 </div>
                 <div>
                   <span>预计结束时间</span>
@@ -776,7 +790,7 @@ export default function Home() {
                 <button
                   className="btn-primary"
                   disabled={busy || !wallet.publicKey}
-                  onClick={() => wallet.publicKey && send(`创建 #${currentId} 游戏`, createGameIxs(wallet.publicKey, currentId))}
+                  onClick={() => setShowCreateModal(true)}
                 >
                   <PlusCircle size={15} /> 立即创建 #{currentId.toString()} 房间 (Step 1)
                 </button>
@@ -839,6 +853,13 @@ export default function Home() {
                       固定保证金 100 GAME 入池。请选择预存翻箱点击额度（每次翻箱扣 1 GAME，未消耗额度终局 100% 原路返还）。
                     </p>
 
+                    {!joinIsOpen && (
+                      <div role="alert" style={{ fontSize: "12px", color: "#fca5a5", display: "flex", alignItems: "center", gap: "6px" }}>
+                        <AlertCircle size={14} aria-hidden="true" />
+                        本局已到开始时间，不能再报名。请返回大厅选择招募中的游戏。
+                      </div>
+                    )}
+
                     {/* Credit chips */}
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                       {[50, 100, 200].map((amt) => (
@@ -871,13 +892,13 @@ export default function Home() {
                     <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "8px" }}>
                       <button
                         className="btn-primary"
-                        disabled={busy || !wallet.publicKey || balances.game < BigInt(totalGameTokensNeeded * 1_000_000)}
+                        disabled={busy || !wallet.publicKey || !joinIsOpen || balances.game < BigInt(totalGameTokensNeeded * 1_000_000)}
                         onClick={() =>
                           wallet.publicKey &&
                           send(`加入 #${currentId} 游戏`, joinIx(wallet.publicKey, currentId, BigInt(creditsToBuy)))
                         }
                       >
-                        <Shield size={16} /> 支付并加入游戏
+                        <Shield size={16} /> {joinIsOpen ? "支付并加入游戏" : "报名已截止"}
                       </button>
                       <button className="btn-gold" onClick={() => setShowBuyModal(true)}>
                         充值 GAME
@@ -1181,9 +1202,23 @@ export default function Home() {
               <strong>#{suggestedGameId}</strong>
             </div>
 
+            <label htmlFor="game-start-at" style={{ display: "grid", gap: "6px", fontSize: "13px", color: "var(--muted-light)" }}>
+              游戏开始时间
+              <input
+                id="game-start-at"
+                type="datetime-local"
+                required
+                min={toDateTimeLocalValue(new Date((nowSec + 60) * 1000))}
+                value={gameStartInput}
+                onChange={(event) => setGameStartInput(event.target.value)}
+                style={{ background: "rgba(255,255,255,0.06)", border: "1px solid var(--line)", borderRadius: "10px", padding: "11px 12px", color: "#fff", colorScheme: "dark" }}
+              />
+              <span style={{ fontSize: "12px", color: "var(--muted)" }}>开始前均可加入；到点后至少 2 人即可开局，对战持续 5 分钟。</span>
+            </label>
+
             <div style={{ background: "rgba(0,0,0,0.25)", padding: "12px", borderRadius: "12px", fontSize: "12px", display: "grid", gap: "4px" }}>
               <div>📦 棋盘规模：100 个红绿双色宝箱</div>
-              <div>⏳ 报名招募时间：120 秒</div>
+              <div>⏳ 报名招募截止：由你设置的游戏开始时间</div>
               <div>⚔️ 竞技对抗时间：300 秒 (5 分钟)</div>
               <div>👥 开局要求：2 ～ 100 人</div>
               <div>💰 保证金：100 GAME / 人</div>
@@ -1192,12 +1227,17 @@ export default function Home() {
             <button
               className="btn-primary"
               style={{ width: "100%", height: "46px" }}
-              disabled={busy || loadingGames || !wallet.publicKey}
+              disabled={busy || loadingGames || !wallet.publicKey || !gameStartInput || new Date(gameStartInput).getTime() <= nowSec * 1000}
               onClick={async () => {
                 if (!wallet.publicKey) return;
-                const latestGames = await fetchAllGames(connection);
+                const startAt = Math.floor(new Date(gameStartInput).getTime() / 1000);
+                if (!Number.isSafeInteger(startAt) || startAt <= Math.floor(Date.now() / 1000)) {
+                  setNotice({ type: "error", text: "游戏开始时间必须晚于当前时间。" });
+                  return;
+                }
+                const latestGames = await fetchAllGames(connection, gamesRef.current.map((item) => item.id));
                 const idNum = latestGames.reduce((max, item) => item.id > max ? item.id : max, 0n) + 1n;
-                await send(`发起 #${idNum} 游戏`, createGameIxs(wallet.publicKey, idNum));
+                await send(`发起 #${idNum} 游戏`, createGameIxs(wallet.publicKey, idNum, BigInt(startAt)));
                 setSelectedGameId(idNum.toString());
                 setShowCreateModal(false);
                 setViewTab("arena");

@@ -34,7 +34,6 @@ const GUARANTEE: u64 = 100 * TOKEN_SCALE;
 const FLIP_COST: u64 = TOKEN_SCALE;
 const MIN_PLAYERS: u16 = 2;
 const MAX_PLAYERS: u16 = 100;
-const JOIN_SECONDS: i64 = 120;
 const PLAY_SECONDS: i64 = 300;
 const INTENT_BUNDLE_SIZE: usize = 512;
 
@@ -315,7 +314,12 @@ fn redeem(program_id: &Address, accounts: &mut [AccountView], amount: u64) -> Pr
     Ok(())
 }
 
-fn create_game(program_id: &Address, accounts: &mut [AccountView], game_id: u64) -> ProgramResult {
+fn create_game(
+    program_id: &Address,
+    accounts: &mut [AccountView],
+    game_id: u64,
+    start_at: i64,
+) -> ProgramResult {
     let [creator, config, game, mint, vault, system] = accounts else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
@@ -347,6 +351,9 @@ fn create_game(program_id: &Address, accounts: &mut [AccountView], game_id: u64)
     )?;
     let clock = Clock::get()?;
     let now = clock.unix_timestamp;
+    if start_at <= now {
+        return Err(err(E_INVALID_DATA));
+    }
     let seed = ((clock.slot ^ game_id) & 0xff) as u8;
     let mut data = game.try_borrow_mut()?;
     data[0] = 2;
@@ -356,8 +363,12 @@ fn create_game(program_id: &Address, accounts: &mut [AccountView], game_id: u64)
     data[73..105].copy_from_slice(vault.address().as_ref());
     data[105] = 0;
     write_i64(&mut data, 106, now)?;
-    write_i64(&mut data, 126, now + JOIN_SECONDS)?;
-    write_i64(&mut data, 134, now + JOIN_SECONDS + PLAY_SECONDS)?;
+    write_i64(&mut data, 126, start_at)?;
+    write_i64(
+        &mut data,
+        134,
+        start_at.checked_add(PLAY_SECONDS).ok_or(err(E_MATH))?,
+    )?;
     data[166] = seed;
     data[168] = bump;
     let mut red = 0u8;
@@ -386,7 +397,7 @@ fn join(program_id: &Address, accounts: &mut [AccountView], click_credits: u64) 
     let now = Clock::get()?.unix_timestamp;
     let game_key = *game.address();
     let mut g = game.try_borrow_mut()?;
-    if g[105] != 0 || now > read_i64(&g, 126)? {
+    if g[105] != 0 || now >= read_i64(&g, 126)? {
         return Err(err(E_JOIN_CLOSED));
     }
     let count = read_u16(&g, 142)?;
@@ -743,7 +754,12 @@ pub fn process_instruction(
         Ix::Initialize => initialize(program_id, accounts),
         Ix::Buy => buy(program_id, accounts, read_u64(payload, 0)?),
         Ix::Redeem => redeem(program_id, accounts, read_u64(payload, 0)?),
-        Ix::CreateGame => create_game(program_id, accounts, read_u64(payload, 0)?),
+        Ix::CreateGame => create_game(
+            program_id,
+            accounts,
+            read_u64(payload, 0)?,
+            read_i64(payload, 8)?,
+        ),
         Ix::Join => join(program_id, accounts, read_u64(payload, 8)?),
         Ix::Start => start(program_id, accounts),
         Ix::Flip => flip(
