@@ -23,7 +23,7 @@ import {
   Layers,
 } from "lucide-react";
 import {
-  buyIx,
+  buyIxs,
   claimIx,
   createGameIxs,
   delegateIx,
@@ -1267,7 +1267,7 @@ export default function Home() {
               onClick={async () => {
                 if (!wallet.publicKey) return;
                 const amt = BigInt(parseInt(buyAmountInput, 10) || 0);
-                await send(`购买 ${amt} GAME`, buyIx(wallet.publicKey, amt));
+                await send(`购买 ${amt} GAME`, buyIxs(wallet.publicKey, amt));
                 setShowBuyModal(false);
               }}
             >
@@ -1293,4 +1293,3 @@ export default function Home() {
     </div>
   );
 }
-

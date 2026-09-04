@@ -7,6 +7,7 @@
     "build:program": "NO_DNA=1 cargo build-sbf"
   },
   "devDependencies": {
+    "@solana/spl-token": "^0.4.15",
     "@solana/web3.js": "^1.98.4",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
