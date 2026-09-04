@@ -4,7 +4,7 @@ Flip Vault 提供两种游戏执行模式：默认的 **Solana Devnet 纯链上�
 
 基于 Solana Devnet 与 MagicBlock Ephemeral Rollup 的 10×10 实时翻箱游戏。Pinocchio 程序负责代币兑换、报名、预存点击额度、阵营、翻箱、结算和领取；Next.js dApp 提供完整交互页面。
 
-- Program ID：`ADTfCpeekasxSNZNgSPgqfyRzxJ7BA4dtaBcoj8JQe8i`
+- Program ID：`CXwaGjunkFBADtqeD7HTXbVxBSaomY9ck6mjTbnYBCMA`
 - ABI：`docs/ABI.md`
 - 使用说明：`docs/项目使用说明书.md`
 

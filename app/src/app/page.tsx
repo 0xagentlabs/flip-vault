@@ -656,6 +656,9 @@ export default function Home() {
                             🏆 {g.winner === 1 ? "红方获胜" : g.winner === 2 ? "绿方获胜" : "平局和解"}
                           </span>
                         )}
+                        <span className={`status-tag ${g.delegated ? "active" : ""}`}>
+                          {g.delegated ? "MagicBlock · 已委托" : "Devnet · 主链"}
+                        </span>
                       </div>
 
                       {/* Mini tug bar */}

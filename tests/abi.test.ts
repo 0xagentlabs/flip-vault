@@ -188,6 +188,7 @@ async function run() {
   assert.equal(parsedGame?.pool, 5000000000n);
   assert.equal(parsedGame?.flips, 88n);
   assert.equal(parsedGame?.winner, 2);
+  assert.equal(parsedGame?.delegated, false);
 
   // 14. Missing base-layer accounts must not fan out into router requests.
   const originalFetch = globalThis.fetch;

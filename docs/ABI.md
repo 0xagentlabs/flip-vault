@@ -32,6 +32,7 @@
 
 - **纯链上模式（默认）**：不执行 Tag 9/10，Tag 0～8 全部发送到 Solana Devnet；读取与交易只使用 Solana RPC，不调用 MagicBlock Router/ER；Game 与 Player 始终由本程序持有。
 - **MagicBlock ER 模式**：Base Layer 执行 0～5、8、9；委托完成后，6、7、10 发往 Router 返回的 ER `fqdn`。Game 与当前 Player 必须解析到同一 `fqdn` 才能翻箱或结算；Tag 10 回写完成后再在 Base Layer 执行 Tag 8。
+- 客户端快照包含 `delegated` 标记：从本程序持有的 Devnet 账户读取时为 `false`，经 Router 定位并从 ER clone 校验读取时为 `true`；大厅据此明确展示执行层状态。
 
 执行模式是客户端路由策略，不写入链上状态，也不改变 Tag 0～10 的二进制布局。已委托的账户不能直接切回纯链上操作，必须先在 ER 执行 CommitAndUndelegate 并等待 Base Layer 恢复本程序 owner。
 
