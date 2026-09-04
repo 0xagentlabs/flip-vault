@@ -21,6 +21,7 @@ import {
   ArrowRight,
   ExternalLink,
   Layers,
+  Radio,
 } from "lucide-react";
 import {
   buyIxs,
@@ -77,6 +78,8 @@ const STEPS = [
   { step: 6, title: "结算游戏", desc: "按阵营分红瓜分金库" },
 ];
 
+type ExecutionMode = "onchain" | "magicblock";
+
 export default function Home() {
   const { connection } = useConnection();
   const wallet = useWallet();
@@ -97,7 +100,7 @@ export default function Home() {
   const [loadingGames, setLoadingGames] = useState<boolean>(false);
   const [erEndpoint, setErEndpoint] = useState<string | null>(null);
   const [playerErEndpoint, setPlayerErEndpoint] = useState<string | null>(null);
-  const [useEr, setUseEr] = useState<boolean>(false);
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>("onchain");
 
   // Optimistic board states
   const [optimisticBoxes, setOptimisticBoxes] = useState<boolean[] | null>(null);
@@ -136,6 +139,16 @@ export default function Home() {
     gamesRef.current = games;
     if (games.length > 0) localStorage.setItem("flip-vault-known-games", JSON.stringify(games.map((item) => item.id.toString())));
   }, [games]);
+
+  const selectExecutionMode = (mode: ExecutionMode) => {
+    setExecutionMode(mode);
+    setNotice({
+      type: "info",
+      text: mode === "onchain"
+        ? "已切换为纯链上模式：翻箱与结算直接提交到 Solana Devnet。"
+        : "已切换为 MagicBlock 模式：开局后需先委托 Game 与 Player，再通过 ER 执行。",
+    });
+  };
 
   // Poll lobby & balances
   useEffect(() => {
@@ -312,6 +325,9 @@ export default function Home() {
       ? Math.max(0, Number(game.startAt) - nowSec)
       : null;
   const joinIsOpen = Boolean(game && game.status === 0 && game.startAt && nowSec > 0 && nowSec < Number(game.startAt));
+  const gameUsesEr = executionMode === "magicblock" && !!erEndpoint;
+  const useEr = gameUsesEr && (!player || playerErEndpoint === erEndpoint);
+  const modeReady = executionMode === "onchain" ? !erEndpoint && !playerErEndpoint : useEr;
 
   // Box grid data
   const currentBoxes = optimisticBoxes ?? game?.boxes ?? initialBoxes;
@@ -322,7 +338,7 @@ export default function Home() {
 
   // Handle Box Click
   const handleBoxClick = (index: number) => {
-    if (!wallet.publicKey || busy || !game || game.status !== 1) return;
+    if (!wallet.publicKey || busy || !game || game.status !== 1 || !modeReady) return;
     // Optimistic toggle
     const nextBoxes = [...currentBoxes];
     nextBoxes[index] = !nextBoxes[index];
@@ -357,7 +373,7 @@ export default function Home() {
           <div className="brand-mark">FV</div>
           <div>
             <strong>FLIP VAULT</strong>
-            <small>SOLANA DEVNET × MAGICBLOCK ER</small>
+            <small>SOLANA DEVNET · ON-CHAIN / MAGICBLOCK ER</small>
           </div>
         </div>
 
@@ -386,6 +402,43 @@ export default function Home() {
           <WalletMultiButton />
         </div>
       </header>
+
+      <section className="execution-mode-card" aria-labelledby="execution-mode-title">
+        <div className="execution-mode-copy">
+          <span className="eyebrow">EXECUTION MODE</span>
+          <h2 id="execution-mode-title">选择本局执行通道</h2>
+          <p>纯链上模式稳定、便于验证完整逻辑；MagicBlock 模式提供低延迟翻箱，但需要先完成账户委托。</p>
+        </div>
+        <div className="mode-options" role="radiogroup" aria-label="游戏执行模式">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={executionMode === "onchain"}
+            className={`mode-option ${executionMode === "onchain" ? "active" : ""}`}
+            disabled={!!erEndpoint || !!playerErEndpoint}
+            onClick={() => selectExecutionMode("onchain")}
+          >
+            <Layers size={20} aria-hidden="true" />
+            <span><strong>纯链上</strong><small>Solana Devnet · 默认推荐</small></span>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={executionMode === "magicblock"}
+            className={`mode-option ${executionMode === "magicblock" ? "active" : ""}`}
+            onClick={() => selectExecutionMode("magicblock")}
+          >
+            <Zap size={20} aria-hidden="true" />
+            <span><strong>MagicBlock ER</strong><small>低延迟 · 需委托账户</small></span>
+          </button>
+        </div>
+        <div className={`mode-status ${modeReady ? "ready" : "pending"}`} role="status" aria-live="polite">
+          <Radio size={16} aria-hidden="true" />
+          {executionMode === "onchain"
+            ? erEndpoint || playerErEndpoint ? "该游戏或玩家已委托，请先在 MagicBlock 模式中解除委托后再使用纯链上模式。" : "纯链上通道已就绪，所有游戏操作直接发送至 Devnet。"
+            : useEr ? "MagicBlock ER 已就绪，Game 与 Player 位于同一 ER。" : "等待委托：Game 与当前 Player 必须委托到同一 ER。"}
+        </div>
+      </section>
 
       {/* 6-Step Visual Stepper Bar */}
       <nav className="stepper-container" aria-label="游戏操作流程">
@@ -759,7 +812,7 @@ export default function Home() {
                   <button
                     key={index}
                     type="button"
-                    disabled={busy || !wallet.publicKey || !game || game.status !== 1}
+                    disabled={busy || !wallet.publicKey || !game || game.status !== 1 || !modeReady}
                     className={`box-cell ${isRed ? "red-box" : "green-box"}`}
                     onClick={() => handleBoxClick(index)}
                     title={`第 ${index + 1} 个箱子 (${isRed ? "红色" : "绿色"}) - 点击翻转为己方阵营`}
@@ -770,27 +823,15 @@ export default function Home() {
               </div>
             </div>
 
-            {/* ER / L1 Status indicator */}
+            {/* Active execution route */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px", color: "var(--muted)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                 <Zap size={14} color={erEndpoint ? "#22c55e" : "#94a3b8"} />
                 <span>
-                  {erEndpoint ? (
-                    <span style={{ color: "#86efac" }}>MagicBlock ER 极速通道就绪 (亚秒级免 gas 翻转)</span>
-                  ) : (
-                    <span>Solana Devnet 基础网络</span>
-                  )}
+                  {executionMode === "magicblock" ? "MagicBlock ER 执行通道" : "Solana Devnet 纯链上通道"}
                 </span>
               </div>
-              <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
-                <input
-                  type="checkbox"
-                  checked={useEr}
-                  disabled={!erEndpoint || (player !== null && playerErEndpoint !== erEndpoint)}
-                  onChange={(e) => setUseEr(e.target.checked)}
-                />
-                启用 ER 极速通道
-              </label>
+              <strong style={{ color: modeReady ? "#86efac" : "#fbbf24" }}>{modeReady ? "已就绪" : "待配置"}</strong>
             </div>
           </div>
 
@@ -996,7 +1037,7 @@ export default function Home() {
                   </h3>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                {executionMode === "magicblock" && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
                   {player && (
                     <button className="btn-secondary" disabled={busy || !wallet.publicKey || !!playerErEndpoint} onClick={() => wallet.publicKey && send("委托我的玩家状态到 ER", delegateIx(wallet.publicKey, currentId, 1))}>
                       <Zap size={14} /> 委托我的 Player
@@ -1007,7 +1048,7 @@ export default function Home() {
                       <Zap size={14} /> 委托 Game 到 ER
                     </button>
                   )}
-                </div>
+                </div>}
 
                 {/* Match Timer Countdown */}
                 <div
@@ -1079,8 +1120,8 @@ export default function Home() {
                   <button
                     className="btn-gold"
                     style={{ width: "100%", height: "48px", fontSize: "16px" }}
-                    disabled={busy || !wallet.publicKey || (playTimeRemaining !== null && playTimeRemaining > 0)}
-                    onClick={() => wallet.publicKey && send("结算游戏", simpleGameIx(7, wallet.publicKey, currentId), useEr)}
+                    disabled={busy || !wallet.publicKey || (playTimeRemaining !== null && playTimeRemaining > 0) || (executionMode === "magicblock" && !erEndpoint)}
+                    onClick={() => wallet.publicKey && send("结算游戏", simpleGameIx(7, wallet.publicKey, currentId), gameUsesEr)}
                   >
                     <Trophy size={18} /> 终盘结算本局比赛 (Step 6)
                   </button>
@@ -1164,18 +1205,18 @@ export default function Home() {
                       <button
                         className="btn-gold"
                         style={{ width: "100%", marginTop: "4px" }}
-                        disabled={busy || !wallet.publicKey}
+                        disabled={busy || !wallet.publicKey || !!erEndpoint || !!playerErEndpoint}
                         onClick={() => wallet.publicKey && send("领取奖励与退款", claimIx(wallet.publicKey, currentId))}
                       >
-                        <Sparkles size={16} /> 领取我的奖金与退款 (Claim)
+                        <Sparkles size={16} /> {erEndpoint || playerErEndpoint ? "先解除委托再领取" : "领取我的奖金与退款 (Claim)"}
                       </button>
                     )}
 
                     {/* Undelegate if delegated */}
-                    <button
+                    {(erEndpoint || playerErEndpoint) && <button
                       className="btn-secondary"
                       style={{ fontSize: "12px", padding: "8px 12px" }}
-                      disabled={busy || !wallet.publicKey}
+                      disabled={busy || !wallet.publicKey || !erEndpoint || !playerErEndpoint || erEndpoint !== playerErEndpoint}
                       onClick={() => wallet.publicKey && send(
                         "解除游戏与玩家委托回写主链",
                         [undelegateIx(wallet.publicKey, pda.player(pda.game(currentId), wallet.publicKey)), undelegateIx(wallet.publicKey, pda.game(currentId))],
@@ -1183,7 +1224,7 @@ export default function Home() {
                       )}
                     >
                       解除 MagicBlock 委托并回写主链
-                    </button>
+                    </button>}
                   </div>
                 ) : (
                   <div style={{ fontSize: "12px", color: "var(--muted)" }}>

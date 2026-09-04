@@ -28,7 +28,12 @@
 | 10 | CommitAndUndelegate | 无 | payer `[s]`, target `[w]`, Magic Context `[w]`, Magic Program |
 | `[196,28,41,206,48,37,51,167]` | Undelegate callback | MagicBlock 编码的 seed payload | delegated `[w]`, buffer `[s]`, payer `[w]`, system, ... |
 
-`s` 表示 signer，`w` 表示 writable。Base Layer 执行 0～5、8、9；委托完成后，6、7、10 发往 Router 返回的 ER `fqdn`。
+`s` 表示 signer，`w` 表示 writable。客户端支持两种互斥执行模式：
+
+- **纯链上模式（默认）**：不执行 Tag 9/10，Tag 0～8 全部发送到 Solana Devnet；Game 与 Player 始终由本程序持有。
+- **MagicBlock ER 模式**：Base Layer 执行 0～5、8、9；委托完成后，6、7、10 发往 Router 返回的 ER `fqdn`。Game 与当前 Player 必须解析到同一 `fqdn` 才能翻箱或结算；Tag 10 回写完成后再在 Base Layer 执行 Tag 8。
+
+执行模式是客户端路由策略，不写入链上状态，也不改变 Tag 0～10 的二进制布局。已委托的账户不能直接切回纯链上操作，必须先在 ER 执行 CommitAndUndelegate 并等待 Base Layer 恢复本程序 owner。
 
 `Start` 至少需要 1 名已加入玩家，且须到达 `start_at`（或房间提前满 100 人）。当 `player_count == 1` 时，`Claim` 忽略红绿胜负，将完整奖池加未使用点击额度结算给唯一玩家；多人局继续按获胜阵营平分奖池，平局退还各自实际贡献。
 
