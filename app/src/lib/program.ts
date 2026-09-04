@@ -173,6 +173,22 @@ export async function fetchGame(connection: Connection, id: bigint): Promise<Gam
   return parseGameAccount(await new Connection(endpoint, "confirmed").getAccountInfo(gamePubkey), gamePubkey);
 }
 
+/**
+ * Find the first unallocated game PDA on the base layer.
+ *
+ * Delegated games are owned by MagicBlock's delegation program on the base
+ * layer, so they disappear from getProgramAccounts(PROGRAM_ID). Their PDA still
+ * exists, however, and getAccountInfo lets us avoid reusing it.
+ */
+export async function findAvailableGameId(connection: Connection, startingAt: bigint): Promise<bigint> {
+  let candidate = startingAt > 0n ? startingAt : 1n;
+  while (await connection.getAccountInfo(pda.game(candidate))) {
+    if (candidate === 0xffff_ffff_ffff_ffffn) throw new Error("游戏编号已耗尽");
+    candidate += 1n;
+  }
+  return candidate;
+}
+
 export async function fetchAllGames(connection: Connection, knownIds: bigint[] = []): Promise<GameState[]> {
   try {
     const accounts = await connection.getProgramAccounts(PROGRAM_ID, {

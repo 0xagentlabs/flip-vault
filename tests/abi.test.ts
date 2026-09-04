@@ -16,6 +16,7 @@ import {
   u64,
   i64,
   fetchGame,
+  findAvailableGameId,
 } from "../app/src/lib/program";
 
 const dummyWallet = Keypair.generate().publicKey;
@@ -117,6 +118,24 @@ const view = new DataView(u64Buf.buffer, u64Buf.byteOffset, 8);
 assert.equal(view.getBigUint64(0, true), 123456789012345n);
 assert.equal(u64Buf.readBigUInt64LE(0), 123456789012345n);
 assert.equal(i64(-123n).readBigInt64LE(0), -123n);
+
+// 13. Game ID allocation must not reuse an existing (including delegated) PDA.
+const occupiedIds = new Set(["1", "2"]);
+const allocationConnection = {
+  getAccountInfo: async (address: PublicKey) => {
+    for (const id of occupiedIds) {
+      if (address.equals(pda.game(BigInt(id)))) return { owner: PROGRAM_ID };
+    }
+    return null;
+  },
+} as unknown as import("@solana/web3.js").Connection;
+void (async () => {
+  assert.equal(await findAvailableGameId(allocationConnection, 1n), 3n);
+  assert.equal(await findAvailableGameId(allocationConnection, 3n), 3n);
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
 
 const testBuf = Buffer.alloc(8);
 testBuf.writeBigUInt64LE(987654321098765n);
