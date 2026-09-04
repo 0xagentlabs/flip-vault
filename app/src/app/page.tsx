@@ -30,6 +30,7 @@ import {
   fetchAllGames,
   fetchBalances,
   fetchGame,
+  findAvailableGameId,
   fetchPlayer,
   flipIx,
   GameState,
@@ -1236,7 +1237,8 @@ export default function Home() {
                   return;
                 }
                 const latestGames = await fetchAllGames(connection, gamesRef.current.map((item) => item.id));
-                const idNum = latestGames.reduce((max, item) => item.id > max ? item.id : max, 0n) + 1n;
+                const firstCandidate = latestGames.reduce((max, item) => item.id > max ? item.id : max, 0n) + 1n;
+                const idNum = await findAvailableGameId(connection, firstCandidate);
                 await send(`发起 #${idNum} 游戏`, createGameIxs(wallet.publicKey, idNum, BigInt(startAt)));
                 setSelectedGameId(idNum.toString());
                 setShowCreateModal(false);
